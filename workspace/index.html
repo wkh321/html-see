@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>函数图像绘制器</title>
+
+  <!-- 外部 CDN 资源 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/mathjs@11.8.0/lib/browser/math.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <!-- 本地样式（拆分后的外部文件） -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ===== 顶部标签栏 ===== -->
+  <div class="top-nav" id="topNav">
+    <div class="top-nav-left">
+      <button class="top-nav-menu-btn" id="topNavMenuBtn" onclick="toggleAppMenu()" title="更多">
+        <span class="ham"></span><span class="ham"></span><span class="ham"></span>
+      </button>
+      <button class="top-nav-btn active" data-nav="plotter">函数绘制器</button>
+      <button class="top-nav-btn" data-nav="mine">我的</button>
+    </div>
+    <div class="top-nav-right" id="topNavRight"></div>
+  </div>
+  <!-- 更多菜单背板 + 菜单栏 -->
+  <div class="menu-backdrop" id="menuBackdrop" onclick="closeAppMenu()"></div>
+  <div class="app-menu" id="appMenu">
+    <div class="app-menu-title">更多操作</div>
+    <button class="app-menu-item" onclick="menuImportLocal()">导入本地文件</button>
+    <button class="app-menu-item" onclick="menuOpenCloud()">打开云端文件</button>
+    <button class="app-menu-item" onclick="menuExportLocal()">导出本地文件</button>
+    <button class="app-menu-item" onclick="menuSaveCloud()">保存到云端</button>
+    <button class="app-menu-item" onclick="menuShare()">分享</button>
+    <button class="app-menu-item" onclick="menuSettings()">设置</button>
+    <button class="app-menu-item" onclick="menuNewProject()">创建新项目</button>
+    <button class="app-menu-item" id="appMenuAuthItem" onclick="menuAuthAction()">登出</button>
+  </div>
+  <!-- 导入本地文件输入（隐藏） -->
+  <input type="file" id="importFile" accept=".json,application/json" style="display:none;">
+  <!-- IP 注册提示条（首次打开检测到该 IP 曾注册过账号） -->
+  <div class="ip-registered-bar" id="ipRegisteredBar" style="display:none;">
+    <span id="ipRegisteredText">检测到本机 IP 曾注册过账号</span>
+    <button class="primary" onclick="UserAuth.openLoginModal()">去登录</button>
+    <button class="ip-bar-close" onclick="document.getElementById('ipRegisteredBar').style.display='none'">&times;</button>
+  </div>
+
+  <!-- ===== 左侧面板 ===== -->
+  <div class="left-panel" id="leftPanel">
+    <div class="panel-resize-handle" id="panelResizeHandle"></div>
+    <div class="panel-header" style="position:relative;">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <button onclick="toggleAIDialog()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;">AI</button>
+        <div style="position:relative;">
+          <button class="header-add-btn" id="headerAddBtn" onclick="toggleAddDropdown(event)" title="添加项目">+</button>
+          <div class="header-add-dropdown" id="headerAddDropdown">
+            <button class="dd-item" onclick="addFuncItem()"><span class="dd-icon">f</span> 添加函数</button>
+            <button class="dd-item" onclick="startPointPlacement()"><span class="dd-icon">+</span> 添加坐标点</button>
+            <button class="dd-item" onclick="startLinePlacement()"><span class="dd-icon">┗</span> 连线</button>
+            <button class="dd-item" onclick="openAddParamDialog()"><span class="dd-icon">a</span> 添加参数</button>
+          </div>
+        </div>
+        <button onclick="centerViewAtOrigin()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;" title="仅复位视图位置，保留其他配置">回到原点</button>
+        <button onclick="resetView()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;">重置</button>
+        <button onclick="togglePanel()">收起</button>
+      </div>
+    </div>
+    <div class="line-panel-overlay" id="linePanelOverlay"></div>
+    <div class="panel-scroll">
+      <div class="batch-toolbar" id="batchToolbar">
+        <span style="font-size:12px;color:#888;">已选 <span id="batchCount">0</span> 项</span>
+        <button class="batch-btn" onclick="selectAllItems()">全选</button>
+        <button class="batch-btn" onclick="deselectAllItems()">取消全选</button>
+        <button class="batch-delete-btn" id="batchDeleteBtn" onclick="confirmBatchDelete()" disabled>批量删除</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0 4px 0;font-size:12px;color:#888;">
+        <span>项目列表 <span id="itemCount">(0)</span></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;padding:0 0 4px 0;flex-wrap:wrap;">
+        <span style="font-size:12px;color:#888;flex-shrink:0;">类型：</span>
+        <label style="font-size:12px;"><input type="checkbox" data-filter="function" checked onchange="updateItemFilter()"> 函数</label>
+        <label style="font-size:12px;"><input type="checkbox" data-filter="point" checked onchange="updateItemFilter()"> 坐标点</label>
+        <label style="font-size:12px;"><input type="checkbox" data-filter="param" checked onchange="updateItemFilter()"> 参数</label>
+        <label style="font-size:12px;"><input type="checkbox" data-filter="segment" checked onchange="updateItemFilter()"> 线段</label>
+        <label style="font-size:12px;"><input type="checkbox" data-filter="ray" checked onchange="updateItemFilter()"> 射线</label>
+        <label style="font-size:12px;"><input type="checkbox" data-filter="line" checked onchange="updateItemFilter()"> 直线</label>
+      </div>
+      <div id="itemListContainer"></div>
+    </div>
+    <div class="virtual-keyboard" id="virtualKeyboard">
+      <div class="vk-tabs">
+        <button class="vk-tab active" data-vktab="num">数字/符号</button>
+        <button class="vk-tab" data-vktab="abc">字母参数</button>
+        <button class="vk-tab" data-vktab="greek">希腊字母</button>
+      </div>
+      <div class="vk-panel active" data-vkpanel="num">
+        <div class="vk-row">
+          <button class="vk-btn" data-vk="7">7</button><button class="vk-btn" data-vk="8">8</button>
+          <button class="vk-btn" data-vk="9">9</button><button class="vk-btn sym" data-vk="+">+</button>
+          <button class="vk-btn sym" data-vk="-">-</button><button class="vk-btn sym" data-vk="*">*</button>
+          <button class="vk-btn sym" data-vk="/">/</button><button class="vk-btn danger" data-vk="del">⌫</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn" data-vk="4">4</button><button class="vk-btn" data-vk="5">5</button>
+          <button class="vk-btn" data-vk="6">6</button><button class="vk-btn sym" data-vk="^">^</button>
+          <button class="vk-btn" data-vk="(">(</button><button class="vk-btn" data-vk=")">)</button>
+          <button class="vk-btn" data-vk="|">|</button><button class="vk-btn" data-vk=".">.</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn" data-vk="1">1</button><button class="vk-btn" data-vk="2">2</button>
+          <button class="vk-btn" data-vk="3">3</button><button class="vk-btn" data-vk="0">0</button>
+          <button class="vk-btn sym" data-vk="=">=</button><button class="vk-btn wide" data-vk=",">,</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn" data-vk="x">x</button><button class="vk-btn" data-vk="y">y</button>
+          <button class="vk-btn sym" data-vk="pi">π</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn fn" data-vk="abs">abs</button><button class="vk-btn fn" data-vk="exp">exp</button>
+          <button class="vk-btn fn" data-vk="asin">asin</button><button class="vk-btn fn" data-vk="acos">acos</button>
+          <button class="vk-btn fn" data-vk="atan">atan</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn fn" data-vk="sin">sin</button><button class="vk-btn fn" data-vk="cos">cos</button>
+          <button class="vk-btn fn" data-vk="tan">tan</button><button class="vk-btn fn" data-vk="log">log</button>
+          <button class="vk-btn fn" data-vk="ln">ln</button><button class="vk-btn fn" data-vk="sqrt">sqrt</button>
+        </div>
+      </div>
+      <div class="vk-panel" data-vkpanel="abc">
+        <div class="vk-row">
+          <button class="vk-btn" data-vk="a">a</button><button class="vk-btn" data-vk="b">b</button>
+          <button class="vk-btn" data-vk="c">c</button><button class="vk-btn" data-vk="d">d</button>
+          <button class="vk-btn" data-vk="e">e</button><button class="vk-btn" data-vk="f">f</button>
+          <button class="vk-btn" data-vk="g">g</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn" data-vk="h">h</button><button class="vk-btn" data-vk="i">i</button>
+          <button class="vk-btn" data-vk="j">j</button><button class="vk-btn" data-vk="k">k</button>
+          <button class="vk-btn" data-vk="l">l</button><button class="vk-btn" data-vk="m">m</button>
+          <button class="vk-btn" data-vk="n">n</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn" data-vk="o">o</button><button class="vk-btn" data-vk="p">p</button>
+          <button class="vk-btn" data-vk="q">q</button><button class="vk-btn" data-vk="r">r</button>
+          <button class="vk-btn" data-vk="s">s</button><button class="vk-btn" data-vk="t">t</button>
+          <button class="vk-btn" data-vk="u">u</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn" data-vk="v">v</button><button class="vk-btn" data-vk="w">w</button>
+          <button class="vk-btn" data-vk="z">z</button>
+        </div>
+      </div>
+      <div class="vk-panel" data-vkpanel="greek">
+        <div class="vk-row">
+          <button class="vk-btn greek" data-vk="alpha">α</button><button class="vk-btn greek" data-vk="beta">β</button>
+          <button class="vk-btn greek" data-vk="gamma">γ</button><button class="vk-btn greek" data-vk="delta">δ</button>
+          <button class="vk-btn greek" data-vk="epsilon">ε</button><button class="vk-btn greek" data-vk="zeta">ζ</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn greek" data-vk="eta">η</button><button class="vk-btn greek" data-vk="theta">θ</button>
+          <button class="vk-btn greek" data-vk="iota">ι</button><button class="vk-btn greek" data-vk="kappa">κ</button>
+          <button class="vk-btn greek" data-vk="lambda">λ</button><button class="vk-btn greek" data-vk="mu">μ</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn greek" data-vk="nu">ν</button><button class="vk-btn greek" data-vk="xi">ξ</button>
+          <button class="vk-btn greek" data-vk="rho">ρ</button><button class="vk-btn greek" data-vk="sigma">σ</button>
+          <button class="vk-btn greek" data-vk="tau">τ</button>
+        </div>
+        <div class="vk-row">
+          <button class="vk-btn greek" data-vk="upsilon">υ</button><button class="vk-btn greek" data-vk="phi">φ</button>
+          <button class="vk-btn greek" data-vk="chi">χ</button><button class="vk-btn greek" data-vk="psi">ψ</button>
+          <button class="vk-btn greek" data-vk="omega">ω</button>
+        </div>
+      </div>
+    </div>
+    <div class="status-bar">
+      <span id="calcStatus">就绪</span>
+      <span class="brand-tip">wkh 制品，必须精品</span>
+      <span class="coord-tip">拖拽平移 | 画布设置调整数轴</span>
+    </div>
+  </div>
+
+  <button class="toggle-panel" onclick="togglePanel()" id="togglePanelBtn">&#9664;</button>
+
+  <!-- ===== 画布区域 ===== -->
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="canvas"></canvas>
+    <div class="toolbar-topright">
+      <button class="settings-btn" id="settingsBtn" onclick="toggleSettings()" title="设置">&#9881;</button>
+      <div class="canvas-settings-dropdown" id="canvasSettingsDropdown">
+        <div class="dropdown-row"><span>单位长度</span><div class="dropdown-controls"><button onclick="changeGridUnit(-1)">-</button><input type="number" id="unitLengthInput" value="5" step="0.1" min="0.0001" max="5000" onchange="setGridUnit(this.value)"><button onclick="changeGridUnit(1)">+</button></div></div>
+        <div class="dropdown-row"><span>网格大小</span><div class="dropdown-controls"><button onclick="changePixelSize(-1)">-</button><input type="number" id="pixelSizeInput" value="3" step="0.1" min="0.1" max="50" onchange="setPixelSize(this.value)"><button onclick="changePixelSize(1)">+</button></div></div>
+        <div class="dropdown-row"><span>小网格边长</span><div class="dropdown-controls"><button onclick="changeMinorGridSteps(-1)">-</button><input type="number" id="minorGridStepsInput" value="5" step="1" min="2" max="10" onchange="setMinorGridSteps(this.value)"><button onclick="changeMinorGridSteps(1)">+</button></div></div>
+        <div class="dropdown-row"><span>点大小</span><div class="dropdown-controls"><button onclick="changePointSize(-1)">-</button><input type="number" id="pointSizeInput" value="4" step="0.5" min="1" max="20" onchange="setPointSize(this.value)"><button onclick="changePointSize(1)">+</button></div></div>
+        <div class="dropdown-row"><span>渲染精度</span><div class="dropdown-controls"><button onclick="changeRenderPrecision(-1)">-</button><input type="number" id="renderPrecisionInput" value="0.01" step="0.01" min="0.001" max="0.1" onchange="setRenderPrecision(this.value)"><button onclick="changeRenderPrecision(1)">+</button></div></div>
+        <div class="dropdown-row"><span>小数位数</span><div class="dropdown-controls"><button onclick="changeDecimalPlaces(-1)">-</button><input type="number" id="decimalPlacesInput" value="2" step="1" min="0" max="13" onchange="setDecimalPlaces(this.value)"><button onclick="changeDecimalPlaces(1)">+</button></div></div>
+        <div class="dropdown-row checkbox-row"><label><input type="checkbox" id="showMinorGrid" checked onchange="toggleMinorGrid()"> 显示小网格</label></div>
+        <div class="dropdown-row checkbox-row"><label><input type="checkbox" id="hideXAxis" onchange="toggleAxis()"> 隐藏 X 轴</label></div>
+        <div class="dropdown-row checkbox-row"><label><input type="checkbox" id="hideYAxis" onchange="toggleAxis()"> 隐藏 Y 轴</label></div>
+        <div class="dropdown-row checkbox-row"><label><input type="checkbox" id="showGrid" checked onchange="toggleGrid()"> 显示网格</label></div>
+        <div class="dropdown-row"><span>坐标点样式</span><select id="ptStyleSelect" onchange="updatePointStyle()"><option value="dot">圆点</option><option value="crosshair">十字线</option></select></div>
+      </div>
+    </div>
+    <div class="placement-toast" id="placementToast">按键盘上的 ESC 即可退出 <button class="toast-close" onclick="exitPointPlacement()" title="退出">&times;</button></div>
+    <div class="line-dialog" id="lineDialog">
+      <div class="line-dialog-header"><h3>连线：<span id="linePointA"></span>→<span id="linePointB"></span></h3><button class="line-close" onclick="exitLinePlacement()">&times;</button></div>
+      <div class="line-dialog-body"><p>选择类型：</p><div class="line-type-options"><button class="line-type-btn active" data-line-type="segment" onclick="selectLineType('segment')">线段</button><button class="line-type-btn" data-line-type="line" onclick="selectLineType('line')">直线</button><button class="line-type-btn" data-line-type="ray" onclick="selectLineType('ray')">射线</button></div></div>
+      <div class="line-dialog-footer"><button class="line-btn cancel" onclick="exitLinePlacement()">取消</button><button class="line-btn confirm" onclick="confirmLineCreate()">确认</button></div>
+    </div>
+    <div class="loading-toast" id="loadingToast">正在计算图像...</div>
+    <div class="coord-display" id="coordDisplay"></div>
+  </div>
+
+  <!-- ===== 各种模态框 ===== -->
+  <div class="confirm-overlay" id="confirmOverlay"><div class="confirm-dialog"><h3>确认删除</h3><p id="confirmMsg">确定要删除选中的项目吗？此操作不可撤销。</p><div class="confirm-actions"><button class="confirm-btn" onclick="cancelBatchDelete()">取消</button><button class="confirm-btn danger" onclick="executeBatchDelete()">确认删除</button></div></div></div>
+  <div class="confirm-overlay" id="genericConfirmOverlay"><div class="confirm-dialog"><h3 id="genericConfirmTitle">确认</h3><p id="genericConfirmMsg" style="line-height:1.6;"></p><div class="confirm-actions"><button class="confirm-btn" onclick="genericConfirmResult(false)">取消</button><button class="confirm-btn danger" onclick="genericConfirmResult(true)">确定</button></div></div></div>
+  <div class="confirm-overlay" id="paramDialogOverlay"><div class="confirm-dialog" style="max-width:400px;"><h3>添加参数</h3><div style="margin:4px 0 14px;display:flex;flex-direction:column;gap:10px;"><div style="display:flex;align-items:center;gap:8px;font-size:13px;"><label style="width:64px;color:#555;flex-shrink:0;">参数名称</label><input type="text" id="newParamName" placeholder="仅小写字母 (a-z)" style="flex:1;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;outline:none;text-transform:lowercase;"></div><div style="display:flex;align-items:center;gap:8px;font-size:13px;"><label style="width:64px;color:#555;flex-shrink:0;">取值范围</label><input type="number" id="newParamMin" value="-10" step="any" style="width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;outline:none;"><span style="color:#999;">~</span><input type="number" id="newParamMax" value="10" step="any" style="width:70px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;outline:none;"></div><div style="display:flex;align-items:center;gap:8px;font-size:13px;"><label style="width:64px;color:#555;flex-shrink:0;">步长</label><input type="number" id="newParamStep" value="0.1" step="any" min="0" style="width:90px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;outline:none;"></div><div style="display:flex;align-items:center;gap:8px;font-size:13px;"><label style="width:64px;color:#555;flex-shrink:0;">初始值</label><input type="number" id="newParamValue" value="1" step="any" style="width:90px;padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;outline:none;"></div><div id="newParamErr" style="display:none;color:#e53e3e;font-size:12px;"></div></div><div class="confirm-actions"><button class="confirm-btn" onclick="closeAddParamDialog()">取消</button><button class="confirm-btn primary" onclick="confirmAddParam()">确定</button></div></div></div>
+  <div class="memory-modal-overlay" id="memoryModalOverlay"><div class="memory-modal"><h3>手动输入记忆 ID</h3><p>请输入 6 位数字作为当前对话的记忆 ID，用于保持 AI 上下文连续性。</p><div style="display:flex;gap:8px;align-items:center;"><input type="text" id="memoryIdInput" maxlength="6" placeholder="例如 123456" pattern="\d{6}" style="flex:1;"><button id="memoryIdRandomBtn" style="padding:6px 12px;border:1px solid #6366f1;border-radius:4px;background:#eef2ff;color:#6366f1;cursor:pointer;font-size:12px;white-space:nowrap;">随机生成</button></div><div class="modal-actions"><button class="cancel" id="memoryModalCancel">取消</button><button class="primary" id="memoryModalConfirm">确定</button></div></div></div>
+  <div class="debug-modal-overlay" id="debugModalOverlay"><div class="debug-modal"><h3 id="debugModalTitle">调试结果</h3><pre id="debugModalContent">等待运行...</pre><div class="debug-actions"><button id="debugModalClose">关闭</button></div></div></div>
+  <div class="ai-model-overlay" id="linkSetOverlay"><div class="ai-model-dialog" style="max-width:680px;"><div class="ai-model-head"><span>外部链接导入列表（指令集）</span><button id="linkSetCloseBtn">关闭</button></div><div class="ai-model-body" style="overflow-y:auto;max-height:70vh;"><div style="font-size:12px;color:#475569;line-height:1.7;margin-bottom:12px;background:#f0fdf9;border:1px solid #a7f3d0;border-radius:6px;padding:8px 12px;">为 <code style="background:#d1fae5;padding:1px 5px;border-radius:3px;">{指令集字样}</code> 绑定一个外部链接。当用户在消息输入框或 AI 守则文本中输入了 <code style="background:#d1fae5;padding:1px 5px;border-radius:3px;">{字样}</code>，系统会在网页内部自动获取该链接的内容，并用双引号包裹后替换到文本中的对应位置（获取失败时在字样前加感叹号 <code style="background:#fee2e2;padding:1px 5px;border-radius:3px;">!{字样}</code>，并在对话内提示获取失败）。<br>链接有效性会在编辑时自动检测：绿色「正常」表示可获取文本，红色「异常」表示获取失败（可能是跨域限制或链接失效），也可点击「检测」手动重测。</div><div id="linkSetList"></div><button id="linkSetAddBtn" style="margin-top:8px;padding:6px 14px;border:1px solid #10b981;border-radius:4px;background:#ecfdf5;color:#059669;cursor:pointer;font-size:12px;">+ 新增条目</button></div><div class="ai-model-foot"><button id="linkSetSaveBtn" class="primary">保存</button><button id="linkSetCancelBtn">取消</button></div></div></div>
+  <div class="ai-model-overlay ai-log-overlay" id="aiLogOverlay"><div class="ai-model-dialog ai-log-dialog" id="aiLogDialog"><div class="ai-model-head" id="aiLogDragHandle" style="cursor:move;user-select:none;"><span>AI 日志</span><span id="aiLogCount" style="font-size:11px;color:#94a3b8;margin-left:8px;"></span><span style="flex:1;"></span><button id="aiLogClearBtn" title="清空全部日志">清空</button><button id="aiLogCloseBtn">关闭</button></div><div class="ai-log-filter-bar" id="aiLogFilterBar"></div><div class="ai-model-body ai-log-body" id="aiLogBody" style="overflow-y:auto;"></div><div class="ai-log-resize" id="aiLogResizeHandle" title="拖动右下角调整大小"></div></div></div>
+  <div class="ai-model-overlay ai-log-overlay" id="aiTerminalOverlay"><div class="ai-model-dialog ai-log-dialog ai-terminal-dialog" id="aiTerminalDialog"><div class="ai-model-head" id="aiTerminalDragHandle" style="cursor:move;user-select:none;"><span>终端指令</span><span style="flex:1;"></span><button id="aiTerminalClearBtn" title="清空终端内容">清空</button><button id="aiTerminalCloseBtn">关闭</button></div><div class="ai-terminal-body" id="aiTerminalBody"></div><div class="ai-terminal-input-row"><span class="ai-terminal-prompt">>>> </span><input type="text" id="aiTerminalInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入指令后回车执行"></div><div class="ai-log-resize" id="aiTerminalResizeHandle" title="拖动右下角调整大小"></div></div></div>
+  <div class="ai-model-overlay" id="rulesModalOverlay"><div class="ai-model-dialog" style="max-width:640px;"><div class="ai-model-head"><span>守则管理</span><button id="rulesModalCloseBtn">关闭</button></div><div class="ai-model-body" style="overflow-y:auto;max-height:70vh;"><div style="margin-bottom:16px;"><label style="font-weight:600;display:block;margin-bottom:4px;">1. AI 必须遵守的守则（系统提示）</label><textarea id="rulesSystemPrompt" rows="4" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;resize:vertical;box-sizing:border-box;">你是一个专业的函数绘制器助手，你可以通过终端指令操作项目。请严格按照用户的需求生成指令，并在回答中附上执行结果。</textarea></div><div style="margin-bottom:16px;"><label style="font-weight:600;display:block;margin-bottom:4px;">2. AI 生成执行步骤守则</label><textarea id="rulesStepsFormat" rows="12" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;resize:vertical;box-sizing:border-box;">{system_rule}你是函数绘制器的执行规划器。请针对用户请求，规划分步执行方案。
+输出分为三部分，用 //#//&amp;// 分割，前置先输出标准 Markdown 表格。
+禁止输出额外文字、注释、解释。
+
+第一部分（开头）：标准 Markdown 表格，表头固定为：步骤序号 | 步骤内容 | 工具名
+表格每行对应一个执行步骤，步骤内容需完整说明该步要做什么、期望达成什么结果。
+
+//#//&amp;//
+
+第二段（步骤数据 JSON 数组），结构：
+[{"step":数字序号,"note":"简短步骤说明，描述需要调用工具完成的操作"}]
+
+//#//&amp;//
+
+第三段（工具数据 JSON 数组），结构：
+[{"step":数字序号,"tool_idx":[数字序号数组]}]
+
+约束：
+1. 仅使用下方可用工具列表内的原生工具，禁止自定义虚构工具；tool_idx 为数字序号数组，直接引用下方工具列表每项的 index 序号，与工具一一对应。
+2. 依赖步骤按先后顺序排序。
+3. 工具列表末尾始终包含两个只读数据工具：get_project_data（获取项目全部数据）与 get_knowledge_base（获取知识库内容）；当某步需要了解当前画布已有内容或依赖前序步骤结果时，必须把 get_project_data 加入该步的 tool_idx，不要凭空猜测当前项目状态。
+4. 无参数工具 parameters 传空对象 {}。
+
+可用工具列表（每项含 index 序号与工具说明，从中挑选工具序号）：
+{tools_json}
+
+【用户请求】
+{user_query}
+</textarea><span style="font-size:11px;color:#888;">占位符：{system_rule} 可选系统守则、{tools_json} 工具列表 JSON、{user_query} 用户请求。</span></div><div><label style="font-weight:600;display:block;margin-bottom:4px;">3. AI 执行步骤守则</label><textarea id="rulesExecuteSteps" rows="8" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;resize:vertical;box-sizing:border-box;">你正在执行函数绘制器的分步操作任务。请严格遵守以下守则：
+1. 当前为本任务第 N 步，只针对本步骤执行，不要越步执行后续步骤的操作。
+2. 先明确本步目标并输出简短的思考过程，再规划本步需要调用的工具与参数；思考过程精炼即可，随后只通过 tool_call 调用工具完成本步，不要输出多余解释文本。
+3. 调用工具前核对本步工具列表（tools 数组）中的必需参数是否完整、数值是否合理；参数无法确定时，输出清晰的思考说明并调用最接近的工具，绝不编造数值。
+4. 每步只允许调用本步 tools 数组中提供的工具；需要的工具不存在时，不要臆造工具名，改为输出说明文字。
+5. 工具调用完成后，用简短文字汇报本步执行结果，供下一步参考。
+6. 本步 tools 数组末尾始终包含两个只读数据工具：get_project_data（获取当前项目全部数据）、get_knowledge_base（获取知识库内容）。当本步需要了解当前画布已有内容或依赖前序步骤的结果时，先调用 get_project_data 获取数据后再决定具体操作，不要凭空猜测当前项目状态。</textarea><span style="font-size:11px;color:#888;">用于指导 AI 在执行每一步操作时的行为规范和注意事项。支持 {指令集} 字样替换。</span></div><div style="margin-top:16px;"><label style="font-weight:600;display:block;margin-bottom:4px;">4. AI 判定守则</label><textarea id="rulesClassifyPrompt" rows="10" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;resize:vertical;box-sizing:border-box;">你是函数绘制器 AI 的分类器。请判断以下用户请求的类型，只回复一个词（「继续执行」「指令执行」或「普通问答」），不要输出任何其他内容。
+
+类别定义：
+1. 「继续执行」：当{has_saved_steps}，且用户输入是要求继续执行任务的指令（例如「继续执行任务」「继续执行」「继续」「从上次中断处继续」等），希望从上次中断处继续执行已保存的执行步骤时，判定为「继续执行」。
+2. 「指令执行」：需要操作项目数据的「终端指令」（例如添加/删除/修改函数、坐标点、参数、连线，或修改网格/视图设置）。
+3. 「普通问答」：提问、解释、闲聊等无需操作项目的请求。
+
+用户请求：{user_query}</textarea><span style="font-size:11px;color:#888;">用于判定用户请求类型（继续执行/指令执行/普通问答）。占位符：{has_saved_steps} 是否有已保存的执行步骤、{user_query} 用户请求。</span></div></div><div class="ai-model-foot"><button id="rulesSaveBtn" class="primary">保存</button><button id="rulesRestoreDefaultBtn">恢复默认</button><button id="rulesCancelBtn">取消</button></div></div></div>
+
+  <!-- ===== 登录 / 注册弹窗 ===== -->
+  <div class="auth-overlay" id="loginModalOverlay">
+    <div class="auth-dialog">
+      <div class="auth-head">
+        <button class="auth-tab active" data-tab="login" id="authTabLogin">登录</button>
+        <button class="auth-tab" data-tab="register" id="authTabRegister">注册</button>
+      </div>
+      <div class="auth-body">
+        <div id="authLoginPanel">
+          <div class="auth-field"><label>用户 ID</label><input type="text" id="loginIdInput" maxlength="6" placeholder="6 位数字用户 ID" autocomplete="off"></div>
+          <div class="auth-field"><label>密码</label><input type="password" id="loginPwInput" placeholder="请输入密码"></div>
+          <div class="auth-field"><label class="auth-check"><input type="radio" id="loginRememberChk" name="loginRemember" value="1"> 2天免登录</label><span style="font-size:11px;color:#94a3b8;">不勾选则关闭页面即登出</span></div>
+          <div class="auth-ip-hint" id="loginIpHint" style="display:none;"></div>
+          <button class="auth-submit" id="loginSubmitBtn">登录</button>
+        </div>
+        <div id="authRegisterPanel" style="display:none;">
+          <div class="auth-field"><label>昵称</label><input type="text" id="regNameInput" maxlength="20" placeholder="最多 20 个字符" autocomplete="off"></div>
+          <div class="auth-field"><label>密码</label><input type="password" id="regPwInput" placeholder="8-16 位，含大小写字母和数字"></div>
+          <div class="auth-field"><label>确认密码</label><input type="password" id="regPw2Input" placeholder="再次输入密码"></div>
+          <div class="auth-field"><label>人机验证</label><div class="auth-captcha"><span id="regCaptchaText" class="captcha-text"></span><input type="text" id="regCaptchaInput" maxlength="4" placeholder="答案"><button class="captcha-refresh" id="regCaptchaRefresh" type="button">换一题</button></div></div>
+          <button class="auth-submit" id="regSubmitBtn">注册</button>
+        </div>
+        <div class="auth-msg" id="authMsg" style="display:none;"></div>
+      </div>
+      <div class="auth-foot"><button id="authCancelBtn">取消</button></div>
+    </div>
+  </div>
+
+  <!-- ===== 更换昵称弹窗 ===== -->
+  <div class="auth-overlay" id="renameModalOverlay">
+    <div class="auth-dialog small">
+      <div class="auth-head"><span style="font-weight:600;padding:8px 12px;">更换昵称</span></div>
+      <div class="auth-body">
+        <div class="auth-field"><label>新昵称</label><input type="text" id="renameInput" maxlength="20" placeholder="最多 20 个字符"></div>
+        <div class="auth-msg" id="renameMsg" style="display:none;"></div>
+        <div class="modal-actions"><button class="cancel" id="renameCancelBtn">取消</button><button class="primary" id="renameConfirmBtn">确认</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 修改密码弹窗 ===== -->
+  <div class="auth-overlay" id="changePwModalOverlay">
+    <div class="auth-dialog small">
+      <div class="auth-head"><span style="font-weight:600;padding:8px 12px;">修改密码</span></div>
+      <div class="auth-body">
+        <div class="auth-field"><label>原密码</label><input type="password" id="changePwOld" placeholder="请输入原密码"></div>
+        <div class="auth-field"><label>新密码</label><input type="password" id="changePwNew" placeholder="8-16 位，含大小写字母和数字"></div>
+        <div class="auth-field"><label>确认新密码</label><input type="password" id="changePwNew2" placeholder="再次输入新密码"></div>
+        <div class="auth-msg" id="changePwMsg" style="display:none;"></div>
+        <div class="modal-actions"><button class="cancel" id="changePwCancelBtn">取消</button><button class="primary" id="changePwConfirmBtn">确认修改</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== IP 黑名单弹窗 ===== -->
+  <div class="auth-overlay" id="blacklistModalOverlay">
+    <div class="auth-dialog small">
+      <div class="auth-head"><span style="font-weight:600;padding:8px 12px;">IP 黑名单</span></div>
+      <div class="auth-body">
+        <div style="font-size:12px;color:#475569;line-height:1.6;margin-bottom:8px;">填入的 IP 将无法登录当前账号；留空则允许所有 IP 登录。每行一个 IP。</div>
+        <textarea id="blacklistTextarea" rows="6" placeholder="例如：1.2.3.4&#10;5.6.7.8" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;resize:vertical;box-sizing:border-box;"></textarea>
+        <div class="auth-msg" id="blacklistMsg" style="display:none;"></div>
+        <div class="modal-actions"><button class="cancel" id="blacklistCancelBtn">取消</button><button class="primary" id="blacklistSaveBtn">保存</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 头像弹窗 ===== -->
+  <div class="auth-overlay" id="avatarModalOverlay">
+    <div class="auth-dialog">
+      <div class="auth-head"><span style="font-weight:600;padding:8px 12px;">更换头像</span></div>
+      <div class="auth-body">
+        <div class="avatar-compare">
+          <div class="avatar-side">
+            <div class="avatar-side-label">原头像</div>
+            <div class="avatar-preview" id="avatarOldPreview"><span class="avatar-preview-char">?</span></div>
+          </div>
+          <div class="avatar-arrow">→</div>
+          <div class="avatar-side">
+            <div class="avatar-side-label">新头像</div>
+            <div class="avatar-preview" id="avatarNewPreview"><span class="avatar-empty-hint">尚未选择</span></div>
+          </div>
+        </div>
+        <div class="auth-msg" id="avatarMsg" style="display:none;"></div>
+        <div class="avatar-actions">
+          <input type="file" id="avatarFileInput" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;">
+          <button class="primary" id="avatarUploadBtn">上传图片</button>
+          <button class="cancel" id="avatarClearBtn">恢复默认</button>
+        </div>
+        <div class="avatar-subtitle">公共头像库（点击选择）</div>
+        <div class="avatar-list" id="avatarList"></div>
+        <div class="modal-actions">
+          <button class="cancel" id="avatarCancelBtn">取消</button>
+          <button class="primary" id="avatarConfirmBtn">确定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 注销账户弹窗 ===== -->
+  <div class="auth-overlay" id="deleteAccountOverlay">
+    <div class="auth-dialog small">
+      <div class="auth-head"><span style="font-weight:600;padding:8px 12px;">注销账户</span></div>
+      <div class="auth-body">
+        <div style="font-size:12px;color:#b91c1c;line-height:1.6;margin-bottom:8px;">注销后，该账号在仓库中的全部数据（资料、云端项目、头像、分享内容）将被永久删除，且无法恢复。</div>
+        <div class="auth-field"><label>用户 ID</label><span id="deleteAccountId" style="font-size:13px;color:#334155;font-weight:600;"></span></div>
+        <div class="auth-field"><label>输入密码确认</label><input type="password" id="deleteAccountPw" placeholder="请输入当前账号密码"></div>
+        <div class="auth-msg" id="deleteAccountMsg" style="display:none;"></div>
+        <div class="modal-actions"><button class="cancel" id="deleteAccountCancelBtn">取消</button><button class="primary danger" id="deleteAccountConfirmBtn">确认注销</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 保存到云端弹窗 ===== -->
+  <div class="auth-overlay" id="saveCloudOverlay">
+    <div class="auth-dialog">
+      <div class="auth-head"><span style="font-weight:600;padding:8px 12px;">保存到云端</span></div>
+      <div class="auth-body">
+        <div class="cloud-id-row">项目唯一 ID：<code id="saveCloudId">-</code></div>
+        <label style="font-size:12px;color:#555;display:block;margin-bottom:4px;">项目名称</label>
+        <input type="text" id="saveCloudName" value="未命名" style="width:100%;box-sizing:border-box;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">
+        <div class="auth-msg" id="saveCloudMsg" style="display:none;"></div>
+        <div class="modal-actions">
+          <button class="cancel" id="saveCloudCancelBtn">取消</button>
+          <button class="primary" id="saveCloudConfirmBtn">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 打开云端文件弹窗 ===== -->
+  <div class="auth-overlay" id="openCloudOverlay">
+    <div class="auth-dialog">
+      <div class="auth-head"><span style="font-weight:600;padding:8px 12px;">打开云端文件</span></div>
+      <div class="auth-body">
+        <div class="cloud-id-search">
+          <input type="text" id="openCloudIdInput" placeholder="输入项目唯一 ID 直接打开" style="flex:1;min-width:0;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
+          <button class="primary" id="openCloudIdBtn">打开</button>
+        </div>
+        <div class="auth-msg" id="openCloudMsg" style="display:none;"></div>
+        <div class="cloud-list" id="openCloudList"></div>
+        <div class="modal-actions"><button class="cancel" id="openCloudCancelBtn">关闭</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 通用确认弹窗（未保存确认等） ===== -->
+  <div class="auth-overlay" id="confirmCloudOverlay">
+    <div class="auth-dialog auth-dialog-sm">
+      <div class="auth-head"><span style="font-weight:600;padding:8px 12px;" id="confirmCloudTitle">确认</span></div>
+      <div class="auth-body">
+        <p id="confirmCloudText" style="margin:0;font-size:13px;color:#374151;line-height:1.6;"></p>
+        <div class="auth-msg" id="confirmCloudMsg" style="display:none;"></div>
+        <div class="modal-actions">
+          <button class="cancel" id="confirmCloudCancelBtn">取消</button>
+          <button class="primary danger" id="confirmCloudOkBtn">确定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 轻提示 ===== -->
+  <div class="auth-toast" id="authToast"></div>
+
+  <!-- ===== 设置面板 ===== -->
+  <div class="settings-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
+  <div class="settings-panel" id="settingsPanel">
+    <div class="settings-resize-handle" id="settingsResizeHandle" title="拖拽调整设置面板宽度"></div>
+    <div class="panel-header">设置<button onclick="toggleSettings()">关闭</button></div>
+    <div class="settings-body">
+      <div class="settings-sidenav">
+        <button class="settings-nav-btn active" data-snav="canvas">画布设置</button>
+        <button class="settings-nav-btn" data-snav="ai">AI 设置</button>
+        <button class="settings-nav-btn" data-snav="anim">动画设置</button>
+        <button class="settings-nav-btn" data-snav="user">管理用户</button>
+        <button class="settings-nav-btn" data-snav="admin">管理者</button>
+      </div>
+      <div class="settings-content">
+        <!-- 画布设置 -->
+        <div class="section" data-snav-panel="canvas">
+          <div class="section-title">画布设置</div>
+          <div class="section-body">
+            <div class="setting-row"><span>单位长度</span><div class="num-stepper"><button onclick="changeGridUnit(-1)">-</button><span class="stepper-val" id="unitLengthVal">5</span><button onclick="changeGridUnit(1)">+</button></div></div>
+            <div class="setting-row"><span>网格大小</span><div class="num-stepper"><button onclick="changePixelSize(-1)">-</button><span class="stepper-val" id="pixelSizeVal">3</span><button onclick="changePixelSize(1)">+</button></div></div>
+            <div class="setting-row"><span>小网格边长</span><div class="num-stepper"><button onclick="changeMinorGridSteps(-1)">-</button><span class="stepper-val" id="minorGridStepsVal">5</span><button onclick="changeMinorGridSteps(1)">+</button></div></div>
+            <div class="setting-row"><label><input type="checkbox" id="showMinorGridSetting" checked> 显示小网格</label></div>
+            <div class="setting-row"><label><input type="checkbox" id="hideXAxisSetting"> 隐藏 X 轴</label></div>
+            <div class="setting-row"><label><input type="checkbox" id="hideYAxisSetting"> 隐藏 Y 轴</label></div>
+            <div class="setting-row"><label><input type="checkbox" id="showGridSetting" checked> 显示网格</label></div>
+            <div class="setting-row"><span>坐标点样式</span><select id="ptStyleSelectSetting"><option value="dot">圆点显示</option><option value="crosshair">十字虚线显示</option></select></div>
+            <hr style="border:none;border-top:1px solid #eee;margin:8px 0;">
+            <div class="setting-row"><span>数轴标号字号</span><input type="number" id="tickFontSize" value="14" min="8" max="28" step="1"></div>
+            <div class="setting-row"><span>公式字号</span><input type="number" id="formulaFontSize" value="18" min="12" max="36" step="1"></div>
+            <hr style="border:none;border-top:1px solid #eee;margin:8px 0;">
+            <div class="setting-row"><span>主网格颜色</span><input type="color" id="majorGridColor" value="#555555"></div>
+            <div class="setting-row"><span>主网格透明度</span><input type="range" id="majorGridAlpha" min="0" max="100" value="100" style="flex:1;max-width:100px;"><span id="majorGridAlphaVal" style="min-width:32px;">100%</span></div>
+            <div class="setting-row"><span>细分网格颜色</span><input type="color" id="minorGridColor" value="#c8c8c8"></div>
+            <div class="setting-row"><span>细分网格透明度</span><input type="range" id="minorGridAlpha" min="0" max="100" value="100" style="flex:1;max-width:100px;"><span id="minorGridAlphaVal" style="min-width:32px;">100%</span></div>
+            <div class="setting-row"><span>动画计算间隔</span><div class="num-stepper"><button onclick="changeComputeInterval(-10)">-</button><span class="stepper-val" id="computeIntervalVal">100</span><button onclick="changeComputeInterval(10)">+</button></div><span style="font-size:10px;color:#999;margin-left:4px;">ms</span></div>
+            <button onclick="fullRender()" style="width:100%;margin-top:8px;padding:6px 0;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;color:#555;">刷新画布</button>
+            <button onclick="forceResetRender()" style="width:100%;margin-top:8px;padding:6px 0;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;color:#e53e3e;font-weight:600;">强制重置渲染</button>
+          </div>
+        </div>
+        <!-- 动画设置 -->
+        <div class="section" data-snav-panel="anim" style="display:none;">
+          <div class="section-title">动画设置</div>
+          <div class="section-body">
+            <div class="setting-row"><span>动画模式</span><select id="animModeSelect"><option value="bidirectional">双向</option><option value="increment">递增</option><option value="decrement">递减</option></select></div>
+            <div class="setting-row"><span>动画速度</span><select id="animSpeedSelect"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option></select></div>
+            <div style="font-size:12px;color:#888;line-height:1.5;margin-top:4px;">播放时参数按步长自动变化，引用该参数的函数与坐标点实时重算。双向：最小值↔最大值往复；递增：到最大值后重置最小值；递减：到最小值后重置最大值。</div>
+          </div>
+        </div>
+        <!-- AI 设置 -->
+        <div class="section" data-snav-panel="ai" style="display:none;">
+          <div class="section-title">AI 模型设置</div>
+          <div class="section-body">
+            <div class="setting-row"><button id="openRulesBtn" style="width:100%;padding:8px;border:1px solid #6366f1;border-radius:4px;background:#eef2ff;color:#6366f1;cursor:pointer;font-weight:600;">管理守则（系统提示 &amp; 执行步骤格式）</button></div>
+            <div class="setting-row"><button id="openLinkSetBtn" style="width:100%;padding:8px;border:1px solid #10b981;border-radius:4px;background:#ecfdf5;color:#059669;cursor:pointer;font-weight:600;">管理外部链接导入列表（指令集）</button></div>
+            <div class="setting-row"><button id="aiLogBtn" style="width:100%;padding:8px;border:1px solid #0ea5e9;border-radius:4px;background:#f0f9ff;color:#0284c7;cursor:pointer;font-weight:600;">查看 AI 日志</button></div>
+            <div class="setting-row"><button id="aiTerminalBtn" style="width:100%;padding:8px;border:1px solid #334155;border-radius:4px;background:#f1f5f9;color:#1e293b;cursor:pointer;font-weight:600;">终端指令</button></div>
+            <div class="setting-row"><label>自动发送上下文摘要</label><input type="checkbox" id="aiAutoContext" checked></div>
+            <div class="setting-row"><label>历史快照数量</label><input type="number" id="aiSnapshotCount" value="20" min="5" max="50" style="width:60px;"></div>
+            <div class="setting-row"><label>流式输出（实验性）</label><input type="checkbox" id="aiStreaming" checked></div>
+            <div class="setting-row"><label>请求格式</label><select id="aiRequestFormatSelect" style="flex:1;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"><option value="openai">OpenAI 格式</option><option value="anthropic">Anthropic 格式</option><option value="google">Google</option><option value="responses">RESPONSES 格式</option></select></div>
+            <div class="setting-row"><label>API Key</label><input type="password" id="aiApiKeyInput" placeholder="付费模型需要，免费模型不需要" style="flex:1;min-width:0;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+            <div class="setting-row"><label>请求超时（秒）</label><input type="number" id="aiTimeout" value="300" min="30" max="600" style="width:80px;"><span style="font-size:11px;color:#999;white-space:nowrap;">避免 HTTP 524，默认 300</span></div>
+            <div class="setting-row" style="flex-wrap:wrap;"><label>步骤失败重试</label><input type="checkbox" id="aiStepRetryEnabled" checked style="margin-right:2px;"><input type="number" id="aiStepRetryCount" value="2" min="0" max="10" style="width:60px;"><span style="font-size:11px;color:#999;">步骤失败后自动重试，重试耗尽继续执行后续步骤，不中断流程</span></div>
+            <hr style="border:none;border-top:1px solid #eee;margin:8px 0;">
+            <div id="aiModelManagerTitle" style="display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:600;margin:6px 0;cursor:pointer;color:#6366f1;" title="点击打开模型列表"><span>模型列表</span><span style="font-size:11px;color:#94a3b8;">点击管理 →</span></div>
+            <div class="setting-row"><label>上下文处理 AI 模型（默认记忆模型）</label><select id="aiDefaultMemoryModel" style="flex:1;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></select></div>
+            <div style="font-size:11px;color:#888;line-height:1.5;margin-bottom:6px;">原内置旧版免费模型（如 DeepSeek-V4）承担的上下文处理工作全部交由该模型：项目数据记忆托管、指令/问答分类、执行规划、普通问答直接回复统一走它。选择「无」时回退使用当前对话模型。</div>
+            <hr style="border:none;border-top:1px solid #eee;margin:8px 0;">
+            <div style="font-size:13px;font-weight:600;margin:6px 0;">终端代码块列表</div>
+            <div class="setting-row" style="flex-wrap:wrap;"><label>工具列表远程地址</label><input type="text" id="aiToolListUrl" value="https://fastly.jsdelivr.net/gh/wkh321/abc@main/AI-chat/miaoda-code_20260802_194438.json" placeholder="https://example.com/tools.json（留空使用内置列表）" style="flex:1;min-width:200px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"><button id="aiToolReloadBtn" style="padding:4px 10px;border:1px solid #6366f1;border-radius:4px;background:#eef2ff;color:#6366f1;cursor:pointer;font-size:12px;white-space:nowrap;">重新获取</button></div>
+            <div class="setting-row" style="flex-wrap:wrap;"><label>简易工具列表地址</label><input type="text" id="aiSimpleToolListUrl" value="https://fastly.jsdelivr.net/gh/wkh321/abc@main/AI-chat/doubao_json_20260805_003112_20260805_003206.json" placeholder="https://example.com/simple-tools.json（仅序号+工具说明，发给记忆模型规划 tool_idx）" style="flex:1;min-width:200px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+            <div style="font-size:11px;color:#888;line-height:1.5;margin-bottom:4px;">简易工具列表：含每个工具的 index 序号与说明（不含执行内容），发送给记忆模型用于生成各步骤需要的 tool_idx 工具序号；序号与上方完整工具数组一一对应。留空时自动使用完整工具数组生成。</div>
+            <div style="font-size:11px;color:#888;line-height:1.5;margin-bottom:4px;">执行分割规则：按 <code>;</code> 符号切分多段指令顺序执行；单段代码执行强制延迟 2~3s，模拟程序运行时序。工具列表仅作展示与执行映射，不可删除或修改。</div>
+            <div id="aiToolListContainer" style="display:flex;flex-direction:column;gap:4px;"></div>
+          </div>
+        </div>
+        <!-- 管理用户 -->
+        <div class="section" data-snav-panel="user" style="display:none;">
+          <div class="section-title">管理用户</div>
+          <div class="section-body" id="userManagePanel">
+            <div class="um-login-tip">加载中...</div>
+          </div>
+        </div>
+        <!-- 管理者 -->
+        <div class="section" data-snav-panel="admin" style="display:none;">
+          <div class="section-title">管理者</div>
+          <div class="section-body">
+            <div class="adm-hint">GitHub 仓库配置：所有用户数据（含明文密码）将保存在该仓库中，请务必使用<b>私有仓库</b>。用户上传头像保存在各自的「用户隐私目录」中；「头像保存根目录」仅存放公共头像库。<span style="color:#dc2626;">密码为明文存储，仓库泄露即全部账号泄露。</span></div>
+            <div class="setting-row"><span>GitHub Token</span><input type="password" id="admToken" placeholder="ghp_xxx 或 gho_xxx" style="flex:1;min-width:0;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+            <div class="setting-row"><span>Owner</span><input type="text" id="admOwner" placeholder="仓库所有者（用户名或组织名）" style="flex:1;min-width:0;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+            <div class="setting-row"><span>Repo</span><input type="text" id="admRepo" placeholder="仓库名" style="flex:1;min-width:0;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+            <div class="setting-row"><span>Branch</span><input type="text" id="admBranch" value="main" style="flex:1;min-width:0;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+            <div class="setting-row"><span>用户数据根目录</span><input type="text" id="admUsersRoot" value="users" style="flex:1;min-width:0;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+            <div class="setting-row"><span>公共头像根目录</span><input type="text" id="admAvatarsRoot" value="avatars" style="flex:1;min-width:0;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+            <div class="setting-row" style="flex-wrap:wrap;"><span style="width:100%;">头像加载链接</span>
+              <div style="display:flex;flex-direction:column;gap:2px;font-size:12px;margin-top:2px;width:100%;">
+                <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="admAvatarCdn" value="fastly"> fastly.jsdelivr.net（推荐，速度快）</label>
+                <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="admAvatarCdn" value="gcore"> gcore.jsdelivr.net</label>
+                <label style="display:flex;align-items:center;gap:6px;"><input type="radio" name="admAvatarCdn" value="raw"> raw.githubusercontent.com（原地址，较慢）</label>
+              </div>
+            </div>
+            <div class="setting-row"><span>共享文件夹根目录</span><input type="text" id="admShareRoot" value="share" style="flex:1;min-width:0;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></div>
+            <div style="font-size:11px;color:#888;line-height:1.5;margin-top:2px;">分享：把云端项目复制一份到「共享文件夹根目录/用户ID/」下，作为对外共享的外部文件。</div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <button id="admSaveBtn" style="padding:6px 16px;border:1px solid #6366f1;border-radius:4px;background:#eef2ff;color:#6366f1;cursor:pointer;font-size:13px;font-weight:600;">保存配置</button>
+              <button id="admListUsersBtn" style="padding:6px 16px;border:1px solid #0ea5e9;border-radius:4px;background:#f0f9ff;color:#0284c7;cursor:pointer;font-size:13px;">查看用户列表</button>
+            </div>
+            <div class="auth-msg" id="admMsg" style="display:none;"></div>
+            <div id="admUsersList" style="margin-top:10px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== AI 助手对话框 ===== -->
+  <div id="aiDialog">
+    <div class="ai-title-bar" id="aiTitleBar"><span class="ai-title-text" id="aiTitleText">AI 助手</span><button class="ai-close-btn" id="aiCloseBtn">关闭</button></div>
+    <div class="ai-model-bar"><span class="ai-bar-label">模型</span><select id="aiModelSelect" class="ai-model-select"></select><span id="aiModelTag" class="model-tag">免费</span><button id="aiLinkSetBarBtn" class="ai-skill-btn" title="管理外部链接导入列表（{指令集} 自动替换为外部链接内容）">指令集</button><button id="aiSyncBtn" class="ai-sync-btn" title="项目数据发生变化时点击同步到记忆模型">数据同步</button><button id="aiViewSyncBtn" class="ai-view-sync-btn" title="查看同步后的项目数据（记忆模型化简结果，只读）">查看同步数据</button><span class="ai-spacer"></span><span id="aiStatusDot" class="ai-status-dot"></span><span id="aiStatusText" class="ai-status-text">空闲</span><span id="aiResponseTime" class="ai-response-time"></span><button id="aiRollbackBtn" class="ai-skill-btn ai-rollback-btn">回退</button></div>
+    <div id="aiChatArea"></div>
+    <div class="ai-steps-bar" id="aiStepsBar"></div>
+    <div class="ai-chat-dock" id="aiChatDock">
+      <div class="ai-chat-dock-handle" id="aiChatDockHandle" title="拖拽调整聊天功能区高度"></div>
+      <div class="ai-input-bar" id="aiInputBar">
+        <div class="ai-skill-group"><button class="ai-skill-btn" data-skill="selected">选中项</button><button class="ai-skill-btn" data-skill="all">全部数据</button></div>
+        <div class="ai-skill-group"><button class="ai-skill-btn" data-skill="kb">知识库</button><button class="ai-skill-btn" data-skill="clear">清空</button></div>
+        <textarea id="aiInput" rows="2" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+        <button id="aiSendBtn">发送</button>
+      </div>
+    </div>
+    <div id="aiResizeHandle"></div>
+  </div>
+
+  <!-- ===== 模型列表弹窗 ===== -->
+  <div class="ai-model-overlay" id="aiModelOverlay">
+    <div class="ai-model-dialog">
+      <div class="ai-model-head"><span>模型列表</span><button id="aiModelCloseBtn">关闭</button></div>
+      <div class="ai-model-body">
+        <div class="ai-model-table-wrap"><div class="ai-model-table-title"><span>表1：主流AI大模型（OpenAI/标准格式）</span><button class="ai-skill-btn" id="aiAddMainstreamBtn">+ 新增</button></div><div class="ai-model-table-scroll"><table class="ai-model-table"><thead><tr><th>模型名称</th><th>API请求地址</th><th>请求方式</th><th>计费类型</th><th>流式输出</th><th>system字段</th><th>记忆ID模式</th><th>记忆ID提取路径</th><th>调试</th><th>操作</th></tr></thead><tbody id="aiMainstreamTbody"></tbody></table></div></div>
+        <div class="ai-model-ds-row"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="aiDeepSeekThinking" checked> <span style="font-weight:600;">DeepSeek 禁用思考模式</span></label><div style="font-size:11px;color:#94a3b8;line-height:1.5;margin-top:2px;">勾选后对主流模型请求附加字段 <code>extra_body: {thinking: {type: "disabled"}}</code>，关闭 DeepSeek 思考、输出标准 tool_call；仅 DeepSeek 模型生效，使用其他模型时建议取消勾选。</div></div>
+        <div class="ai-model-table-wrap"><div class="ai-model-table-title"><span>表2：旧版兼容AI模型（GET拼接URL参数）</span><button class="ai-skill-btn" id="aiAddLegacyBtn">+ 新增</button></div><div class="ai-model-table-scroll"><table class="ai-model-table"><thead><tr><th>外部显示名称</th><th>API地址</th><th>请求方式</th><th>计费类型</th><th>流式输出</th><th>记忆参数key</th><th>文本内容参数名</th><th>AI回复字段路径</th><th>记忆ID提取路径</th><th>Token密钥</th><th>额外拼接参数</th><th>记忆ID模式</th><th>调试</th><th>操作</th></tr></thead><tbody id="aiLegacyTbody"></tbody></table></div></div>
+      </div>
+      <div class="ai-model-foot"><button id="aiAddCustomBtn" class="primary">添加自定义模型</button><button id="aiRestoreDefaultBtn" class="danger">恢复默认</button></div>
+    </div>
+  </div>
+
+  <!-- ===== 同步数据查看框 ===== -->
+  <div class="ai-view-overlay" id="aiViewOverlay">
+    <div class="ai-view-dialog"><div class="ai-view-head"><span>同步后的项目数据（AI 化简结果 · 只读）</span><button id="aiViewCloseBtn">关闭</button></div><div class="ai-view-body" id="aiViewBody"></div><div class="ai-view-foot"><button id="aiViewCopyBtn">复制内容</button><button id="aiViewRefreshBtn" class="primary">同步并刷新</button></div></div>
+  </div>
+
+  <!-- ===== 加载拆分后的 JavaScript ===== -->
+  <script src="auth.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
