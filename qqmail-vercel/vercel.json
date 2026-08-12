@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/mail.js": {
+      "maxDuration": 60
+    }
+  }
+}

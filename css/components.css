@@ -1,0 +1,197 @@
+/* 通用玻璃卡片（轻玻璃拟态：半透明渐变 + 磨砂 + 顶部高光，偏透亮） */
+.glass-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.16));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 32px rgba(30, 27, 75, 0.08), var(--glass-highlight);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  transition: background 0.22s, border-color 0.22s, box-shadow 0.22s,
+    transform 0.22s;
+}
+
+.glass-card.hoverable:hover {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.24));
+  border-color: var(--accent-border);
+  box-shadow: 0 14px 40px rgba(30, 27, 75, 0.12), var(--glass-highlight);
+  transform: translateY(-2px);
+}
+
+/* 迷你玻璃：次级卡片 / 块级元素统一磨砂质感 */
+.glass-mini {
+  background: var(--glass-mini-bg);
+  border: 1px solid var(--glass-mini-border);
+  box-shadow: var(--glass-highlight);
+  backdrop-filter: blur(8px) saturate(125%);
+  -webkit-backdrop-filter: blur(8px) saturate(125%);
+}
+
+/* 次级卡片类元素统一套用迷你玻璃（覆盖原有半透明白底） */
+.stat-block,
+.admin-tab,
+.batch-bar,
+.batch-item,
+.adm-user-row,
+.link-item,
+.placeholder-icon {
+  background: var(--glass-mini-bg);
+  border: 1px solid var(--glass-mini-border);
+  box-shadow: var(--glass-highlight);
+  backdrop-filter: blur(8px) saturate(125%);
+  -webkit-backdrop-filter: blur(8px) saturate(125%);
+}
+
+/* 页面切换时卡片依次翻开（由 js/pages.js 添加 .flip-in） */
+@keyframes cardFlip {
+  from {
+    opacity: 0;
+    transform: perspective(1000px) rotateX(-72deg) translateY(26px);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(1000px) rotateX(0deg) translateY(0);
+  }
+}
+
+.flip-in {
+  opacity: 0;
+  transform-origin: 50% 0;
+  animation: cardFlip 0.5s cubic-bezier(0.22, 0.9, 0.3, 1) forwards;
+}
+
+/* 图标按钮 */
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-body);
+  transition: background 0.2s, color 0.2s;
+}
+
+.icon-btn:hover {
+  background: var(--accent-soft);
+  color: var(--text-accent);
+}
+
+.icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* 头像 */
+.avatar {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 60%, #a855f7 100%);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7);
+  flex-shrink: 0;
+  user-select: none;
+  overflow: hidden;
+}
+
+.avatar-letter {
+  line-height: 1;
+  font-size: 15px;
+}
+
+.avatar-lg .avatar-letter {
+  font-size: 22px;
+}
+
+.avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-lg {
+  width: 56px;
+  height: 56px;
+}
+
+/* 下拉菜单 */
+.dropdown {
+  position: absolute;
+  min-width: 172px;
+  padding: 6px;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity 0.18s, transform 0.18s, visibility 0.18s;
+  z-index: 1200;
+}
+
+.dropdown.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-body);
+  text-align: left;
+  transition: background 0.16s, color 0.16s;
+}
+
+.dropdown button:hover {
+  background: var(--accent-soft);
+  color: var(--text-accent);
+}
+
+.dropdown button.danger {
+  color: #dc2626;
+}
+
+.dropdown button.danger:hover {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+
+.dropdown .dropdown-sep {
+  height: 1px;
+  margin: 6px 8px;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.dropdown .dropdown-label {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.dropdown button svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.dropdown button:hover svg {
+  color: var(--text-accent);
+}

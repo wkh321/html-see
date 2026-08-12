@@ -1,0 +1,147 @@
+.sidebar {
+  position: fixed;
+  top: var(--topnav-h);
+  left: 0;
+  bottom: 0;
+  width: var(--sidebar-w);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 12px;
+  background: rgba(255, 255, 255, 0.4);
+  border-right: 1px solid rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+}
+
+/* 快捷返回 */
+.sidebar-quick {
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.quick-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-body);
+  transition: background 0.2s, color 0.2s;
+}
+
+.quick-back svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-strong);
+}
+
+.quick-back:hover {
+  background: var(--accent-soft);
+  color: var(--text-accent);
+}
+
+/* 分组：各大类之间加大空隙并以分割线分隔 */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.nav-group-title {
+  margin-top: 12px;
+  padding: 10px 12px 6px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+.sidebar-nav > .nav-group-title:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 4px;
+}
+
+.nav-group-title.admin-tag {
+  color: var(--admin);
+}
+
+/* 每一大类的每一小项之间用分割线分隔 */
+.side-item + .side-item {
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.side-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-body);
+  transition: background 0.18s, color 0.18s, transform 0.18s;
+}
+
+.side-item svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+  transition: color 0.18s;
+}
+
+.side-item:hover {
+  background: var(--glass-bg-hover);
+  color: var(--text-title);
+  transform: translateX(2px);
+}
+
+.side-item.active {
+  color: var(--text-accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.side-item.active svg {
+  color: var(--accent-strong);
+}
+
+/* 管理员项：浅紫标识 */
+.side-item.side-admin {
+  color: #7c6cd8;
+}
+
+.side-item.side-admin svg {
+  color: var(--admin);
+}
+
+.side-item.side-admin:hover {
+  background: var(--admin-soft);
+}
+
+.side-item.side-admin.active {
+  background: var(--admin-soft);
+  color: #6d5bd3;
+}
+
+.side-item.side-admin.active svg {
+  color: #8b5cf6;
+}
