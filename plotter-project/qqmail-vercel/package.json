@@ -1,8 +1,0 @@
-{
-  "name": "qqmail-vercel",
-  "version": "1.0.0",
-  "description": "QQ 邮箱 SMTP 发送 Serverless 函数（Vercel）",
-  "dependencies": {
-    "nodemailer": "^6.9.13"
-  }
-}
