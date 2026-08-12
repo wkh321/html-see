@@ -3112,7 +3112,7 @@ function mailPost(data) {
     body: JSON.stringify(data),
   })
     .then((res) => (res.ok ? res.json() : { ok: false, msg: '邮件服务 HTTP ' + res.status }))
-    .catch(() => ({ ok: false, msg: '邮件服务连接失败，请检查域名配置或网络' }));
+    .catch((e) => ({ ok: false, msg: '邮件服务连接失败：' + (e && e.message ? e.message : '网络错误') + '（目标 ' + base + '/api/mail）' }));
 }
 
 let mailLastCode = null;

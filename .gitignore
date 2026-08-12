@@ -1,0 +1,14 @@
+# 环境变量（SMTP 授权码等）
+.env
+.env.*
+!.env.example
+
+# 打包与构建产物
+*.zip
+node_modules/
+.vercel/
+dist/
+
+# 系统文件
+.DS_Store
+Thumbs.db
