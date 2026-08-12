@@ -117,4 +117,13 @@ Entries discovered by the Agent during task execution should follow this format:
   - plotter auth.js getConfig 回退：自己的 `fnplt_gh_config` 缺失时读门户 `fnplt_gh_config_v2`（同一 GitHub 配置一次配置两页共用）；脚本内部引用外部模式时勿用顶层 let/const 重复命名（script.js 顶层声明冲突会 SyntaxError），追加模块包 IIFE。
   - 联调验证：`/tmp/opencode/plotter-ext.mjs`（jsdom + URL 参数 + fetch mock，验证加载/渲染/保存写回；需 stub canvas 2D/katex/marked/math/Worker/requestAnimationFrame）。plotter 页面函数表达式渲染在 `[data-katex]` 属性（katex 渲染），textContent 只有 `#N函数`。预览：plotter 页面在 /plotter/index.html。
 
+[Project Knowledge Summary]
+- Date: 2026-08-12
+- Context: Discovered by Agent while deploying the merged project to GitHub Pages and fixing email send failures
+- Category: Operations & Deployment | Troubleshooting & Debugging
+- Instructions:
+  - 合并项目已部署 GitHub Pages：仓库 `wkh321/html-see`（main 分支根目录），线上地址 `https://wkh321.github.io/html-see/`（根 index.html = 我的页面，/plotter/ = 函数绘制器）。可上传整理版在 `/workspace/plotter-project/`，.gitignore 忽略 *.zip/.env/node_modules/.vercel/.DS_Store；隐藏文件 .gitignore 与 .monkeycode/ 网页上传时容易漏，需手动补齐。
+  - 邮件后端 qqmail-vercel 部署在 Vercel `https://qqmail-vercel.vercel.app`（api/mail.js，env QQ_MAIL_USER/QQ_MAIL_PASS）。前端 `Failed to fetch（目标 .../api/mail）` 是浏览器网络层错误，中国大陆访问 vercel.app 普遍不可达，需换国内可达的 serverless 平台或自有服务器部署 mail.js；mail.js/app.js 的 mailPost catch 已改为输出具体错误+目标地址便于诊断。
+  - 门户与绘制器登录态互通：互为回退读取对方会话 key（`fnplt_session_ls/ss` ↔ `fnplt_mine_session`），clearSession 双向清理；ghRequest/ghDelete 均带 20s 超时。
+
 
