@@ -1,0 +1,279 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  /* 阻止浏览器手势级下拉刷新（防止刷新时误选文字） */
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: var(--text-body);
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  outline: none;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* 全屏低饱和魔幻流体渐变背景（背景色实时缓慢变换：hue-rotate 走合成器） */
+.page-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(58% 52% at 12% 16%, rgba(49, 46, 129, 0.4), transparent 62%),
+    radial-gradient(50% 46% at 88% 10%, rgba(14, 165, 233, 0.42), transparent 64%),
+    radial-gradient(56% 54% at 82% 86%, rgba(196, 181, 253, 0.5), transparent 64%),
+    radial-gradient(44% 44% at 16% 84%, rgba(232, 121, 249, 0.3), transparent 60%),
+    linear-gradient(160deg, #ece7fb 0%, #e6f2fd 45%, #f4eafd 100%);
+  animation: bgHueShift 30s ease-in-out infinite alternate;
+  will-change: filter;
+}
+
+@keyframes bgHueShift {
+  from {
+    filter: hue-rotate(0deg) saturate(1);
+  }
+  50% {
+    filter: hue-rotate(18deg) saturate(1.08);
+  }
+  to {
+    filter: hue-rotate(42deg) saturate(1.14);
+  }
+}
+
+.page-bg::before,
+.page-bg::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.55;
+  will-change: transform;
+  animation: drift 22s ease-in-out infinite alternate;
+}
+
+.page-bg::before {
+  width: 420px;
+  height: 420px;
+  left: 8%;
+  top: 12%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.5), transparent 68%);
+}
+
+.page-bg::after {
+  width: 520px;
+  height: 520px;
+  right: 6%;
+  bottom: 6%;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.5), transparent 68%);
+  animation-delay: -11s;
+}
+
+@keyframes drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(30px, -22px, 0) scale(1.08);
+  }
+}
+
+/* 动态极光层：柔和彩带缓慢呼吸。不使用 filter:blur（大范围实时模糊是卡顿主因），
+   径向渐变自带柔边，仅做透明度呼吸，走合成器，开销极低 */
+.bg-aurora {
+  position: fixed;
+  inset: -10%;
+  z-index: -1;
+  pointer-events: none;
+  will-change: opacity;
+  background:
+    radial-gradient(38% 42% at 22% 28%, rgba(56, 189, 248, 0.14), transparent 70%),
+    radial-gradient(34% 38% at 78% 22%, rgba(167, 139, 250, 0.16), transparent 70%),
+    radial-gradient(40% 46% at 70% 78%, rgba(244, 114, 182, 0.12), transparent 70%);
+  animation: auroraShift 26s ease-in-out infinite alternate;
+}
+
+@keyframes auroraShift {
+  from {
+    opacity: 0.6;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(2%, -3%, 0) scale(1.06);
+  }
+}
+
+/* 全局 toast */
+.toast-wrap {
+  position: fixed;
+  top: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.88);
+  color: #fff;
+  font-size: 13px;
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 底部浮层提示（区别于顶部 toast，用于加载中反复点击刷新等场景） */
+.bottom-tip-wrap {
+  position: fixed;
+  bottom: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9998;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.bottom-tip {
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #fff;
+  font-size: 13px;
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+.bottom-tip.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 私有内容页刷新按钮 */
+.page-refresh-btn {
+  flex-shrink: 0;
+  padding: 7px 16px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  cursor: pointer;
+  transition: background 0.18s, transform 0.18s, opacity 0.18s;
+}
+
+.page-refresh-btn:hover {
+  background: rgba(56, 189, 248, 0.26);
+  transform: translateY(-1px);
+}
+
+.page-refresh-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 骨架屏：数据读取中的占位块（微光扫过动画，走合成器） */
+.skeleton-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton {
+  border-radius: 12px;
+  background: linear-gradient(100deg, rgba(148, 163, 184, 0.16) 40%, rgba(255, 255, 255, 0.55) 50%, rgba(148, 163, 184, 0.16) 60%);
+  background-size: 220% 100%;
+  animation: sk-shimmer 1.15s linear infinite;
+}
+
+.sk-card {
+  height: 176px;
+  border-radius: 18px;
+}
+
+.sk-row {
+  height: 52px;
+  border-radius: 12px;
+}
+
+@keyframes sk-shimmer {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -90% 0;
+  }
+}
+
+/* 项目卡片网格内的骨架：与真实卡片网格一致 */
+#projDeck .skeleton-wrap {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+@media (max-width: 1000px) {
+  #projDeck .skeleton-wrap {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  #projDeck .skeleton-wrap {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  #projDeck .skeleton-wrap {
+    grid-template-columns: 1fr;
+  }
+}

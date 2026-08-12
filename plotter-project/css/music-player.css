@@ -1,0 +1,188 @@
+/* 音乐播放器：玻璃拟态悬浮卡片，层级最高，可拖拽，可收起露出左缘 */
+.music-card {
+  position: fixed;
+  left: 12px;
+  top: 50%;
+  width: 320px;
+  z-index: 10000;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transform: translateY(-50%);
+  transition: left 0.35s cubic-bezier(0.22, 1, 0.36, 1), top 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+.music-card:active { cursor: grabbing; }
+
+/* 收起：left 由 JS 移出屏幕（仅露左缘 FOLD_PEEK 宽）；下方为无 JS 时的兜底 */
+.music-card.folded {
+  left: -296px;
+}
+.music-card.folded .music-card-inner { opacity: 0.12; }
+.music-card.folded:hover .music-card-inner { opacity: 0.6; }
+
+.music-card-inner {
+  padding: 14px;
+  transition: opacity 0.3s ease;
+}
+
+/* 右上角收起按钮 */
+.music-fold {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.08);
+  color: #334155;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.music-fold:hover { background: rgba(15, 23, 42, 0.16); }
+.music-card.folded .music-fold { transform: rotate(180deg); }
+
+/* 主区：封面 + 歌名/歌手 */
+.music-main {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding-right: 26px;
+}
+.music-cover {
+  width: 62px;
+  height: 62px;
+  flex: 0 0 62px;
+  border-radius: 14px;
+  object-fit: cover;
+  background: linear-gradient(135deg, #c7d2fe, #fbcfe8);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+}
+.music-cover.mp-cover-fallback {
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.9), transparent 40%),
+    linear-gradient(135deg, #c7d2fe, #fbcfe8);
+  position: relative;
+}
+.music-cover.mp-cover-fallback::after {
+  content: '♪';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  color: #6366f1;
+}
+.music-info { min-width: 0; flex: 1; }
+.music-name-wrap {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.music-name {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.music-name.scrolling {
+  animation: mp-slide 7s ease-in-out infinite alternate;
+}
+@keyframes mp-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--dist, -40px)); }
+}
+.music-singer {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 进度条 */
+.music-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 10px;
+}
+.mp-time {
+  font-size: 10px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  width: 32px;
+  flex: 0 0 32px;
+  text-align: center;
+}
+.mp-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.12);
+  cursor: pointer;
+  position: relative;
+}
+.mp-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6366f1, #ec4899);
+  transition: width 0.15s linear;
+}
+
+/* 控件 */
+.music-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+}
+.mp-btn {
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.06);
+  color: #1e293b;
+  font-size: 14px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.mp-btn:hover { background: rgba(15, 23, 42, 0.14); transform: translateY(-1px); }
+.mp-toggle {
+  width: 46px;
+  height: 46px;
+  background: linear-gradient(135deg, #6366f1, #ec4899);
+  color: #fff;
+  font-size: 16px;
+  box-shadow: 0 6px 18px rgba(236, 72, 153, 0.35);
+}
+.music-card.mp-playing .mp-toggle {
+  background: linear-gradient(135deg, #ec4899, #6366f1);
+}
+.mp-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* 拖拽 / 下拉刷新期间禁止选中文字 */
+body.music-dragging,
+body.pull-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}

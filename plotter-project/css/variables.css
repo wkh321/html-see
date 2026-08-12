@@ -1,0 +1,38 @@
+:root {
+  /* 主色 */
+  --accent: #38bdf8;
+  --accent-strong: #0ea5e9;
+  --accent-soft: rgba(56, 189, 248, 0.16);
+  --accent-border: rgba(56, 189, 248, 0.45);
+
+  /* 文字层级 */
+  --text-title: #1e293b;
+  --text-body: #475569;
+  --text-muted: #94a3b8;
+  --text-accent: #0284c7;
+
+  /* 管理员浅紫标识 */
+  --admin: #a78bfa;
+  --admin-soft: rgba(167, 139, 250, 0.16);
+
+  /* 玻璃材质（轻玻璃拟态：半透明 + 磨砂，偏透亮） */
+  --glass-bg: rgba(255, 255, 255, 0.3);
+  --glass-bg-strong: rgba(255, 255, 255, 0.42);
+  --glass-bg-hover: rgba(255, 255, 255, 0.42);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-blur: 12px;
+  --glass-mini-bg: rgba(255, 255, 255, 0.24);
+  --glass-mini-border: rgba(255, 255, 255, 0.42);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+
+  /* 尺寸 */
+  --topnav-h: 64px;
+  --sidebar-w: 240px;
+  --radius: 14px;
+  --radius-sm: 10px;
+
+  /* 阴影 */
+  --shadow-sm: 0 2px 10px rgba(30, 27, 75, 0.08);
+  --shadow-md: 0 8px 28px rgba(30, 27, 75, 0.14);
+  --shadow-lg: 0 16px 44px rgba(30, 27, 75, 0.2);
+}
