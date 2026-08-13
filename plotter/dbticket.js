@@ -6,7 +6,8 @@
  *   —— URL 不再嵌套 u/p，防止用户篡改参数越权读取他人项目。
  *
  * 本模块在绘制器页面向点鸭校验令牌：验证记录存在、status=active、未过期后，
- * 返回 { u, p, exp } 并把 status 标记为 consumed（一次性消费）。
+ * 返回 { u, p, exp }，把 status 标记为 consumed 并立即删除该令牌记录（一次性消费）。
+ * 删除失败不影响放行（status 已置 consumed，重复校验会被拒绝）。
  *
  * 刷新页面不再走本模块：script.js 会把消费结果缓存到 sessionStorage
  * （刷新保留、关闭页面 / 新开标签页即消失）。关闭后重新打开同一链接时，
@@ -44,6 +45,15 @@
   function getLogsDb() {
     var logs = normalizeDbCfg(readCfg());
     if (!logs.enabled || !global.DbsApi) return Promise.reject(new Error('点鸭数据表未启用'));
+    // 兼容 dbs-all.js 的 logs 配置：dbs-all.js 会把 logs 配置类写入
+    // window.module.exports，但本页面实际生效的 DbsApi（dbs-users.js）只从
+    // window.__dbsConfigs[table] 读取。若缺 logs 配置，init({table:'logs'})
+    // 会回退到单键 users 配置去查 open_ticket，导致令牌永远校验失败。
+    var pool = global.__dbsConfigs;
+    var mod = global.module && global.module.exports;
+    if (pool && mod && Object.keys(mod).length && Object.keys(pool).indexOf('logs') === -1) {
+      pool['logs'] = { exports: mod };
+    }
     if (logs.configUrl) return global.DbsApi.init({ configUrl: logs.configUrl });
     return global.DbsApi.init({ table: 'logs' });
   }
@@ -72,6 +82,9 @@
         if (!u || !p) return null;
         return db.update(rowFilter(token), { status: 'consumed' }).then(function (res) {
           if (!res || res.code !== 200) return null;
+          // 一次性消费后立即清理该令牌记录，避免数据库残留过期令牌。
+          // 删除失败不影响放行（status 已置 consumed，重复校验会被拒绝）。
+          try { db.remove(rowFilter(token)).catch(function () {}); } catch (e) {}
           return { u: u, p: p, exp: exp };
         });
       })

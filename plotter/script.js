@@ -241,7 +241,7 @@ function sampleExplicit(fn,xMin,xMax,step){
 }
 
 self.onmessage=function(e){console.log('[WORKER] 收到消息，taskSeq:',e.data.taskSeq,'funcs:',e.data.funcs.length);
-  const{taskSeq:ts,funcs,viewXMin,viewXMax,viewYMin,viewYMax,targetCellSize,paramVals}=e.data;
+  const{taskSeq:ts,funcs,viewXMin,viewXMax,viewYMin,viewYMax,targetCellSize,paramVals,canvasW}=e.data;
   const sW=Math.abs(viewXMax-viewXMin),sH=Math.abs(viewYMax-viewYMin);
   const results=[];
   for(const f of funcs){
@@ -255,7 +255,8 @@ self.onmessage=function(e){console.log('[WORKER] 收到消息，taskSeq:',e.data
       const ep=isExplicit?eq.substring(2):eq;
       try{
         const fn=compileExplicit(ep, paramVals);
-        const sStep=sW/1600;
+        // 采样步长随画布像素密度动态变化（每 2px 约 1 个采样点），视口缩放时保证曲线连续不断裂
+        const sStep=sW/Math.max(1600,Math.min(4000,(canvasW||1600)*2));
         const pad=sW*0.2;
         const xMin=viewXMin-pad;
         const xMax=viewXMax+pad;
@@ -337,18 +338,62 @@ function groupSegments(segments){
   return chains;
 }
 
+// 计算当前采样范围（数学坐标）。无旋转：视口向外扩 3 格/30% 缓冲；
+// 静态旋转：视口四角绕旋转支点逆旋转后的包络+缓冲；
+// 旋转动画中：以支点为圆心、覆盖视口任意旋转角度的圆域+缓冲。
+// 范围跟随画布平移/缩放动态变化，不写死固定采样区间。
+function computeSampleRange(){
+  const p=ppu();
+  const vxMin=(0-view.ox)/p,vxMax=(canvasW-view.ox)/p;
+  const vyMin=(view.oy-canvasH)/p,vyMax=view.oy/p;
+  const su=smallUnit();
+  const sW=Math.abs(vxMax-vxMin),sH=Math.abs(vyMax-vyMin);
+  const padX=Math.max(su*3,sW*0.3),padY=Math.max(su*3,sH*0.3);
+  let xMin=vxMin-padX,xMax=vxMax+padX,yMin=vyMin-padY,yMax=vyMax+padY;
+  const corners=[[vxMin,vyMin],[vxMin,vyMax],[vxMax,vyMin],[vxMax,vyMax]];
+  let anim=false;
+  for(const f of folders){
+    if(!f.rotation||!f.rotation.enabled||!f.rotation.angle)continue;
+    const c=computeRotationCenter(f);
+    if(!c)continue;
+    const w=f.rotation._switchCenter||{x:c.x,y:c.y};
+    const isAnim=folderRotAnims.has(f.id);
+    if(isAnim)anim=true;
+    if(isAnim){
+      // 动画：任意角度下 f(P)=实时中心+R(angle)*(P-支点)，可视点集=支点+以(视口-实时中心)半径的圆域
+      let maxR=0;
+      for(const q of corners)maxR=Math.max(maxR,Math.hypot(q[0]-c.x,q[1]-c.y));
+      const R=maxR+Math.max(padX,padY);
+      xMin=Math.min(xMin,w.x-R);xMax=Math.max(xMax,w.x+R);
+      yMin=Math.min(yMin,w.y-R);yMax=Math.max(yMax,w.y+R);
+    }else{
+      // 静态：视口四角绕支点逆旋转的包络
+      const rad=f.rotation.angle*Math.PI/180,cos=Math.cos(rad),sin=Math.sin(rad);
+      let bx0=Infinity,bx1=-Infinity,by0=Infinity,by1=-Infinity;
+      for(const q of corners){
+        const dx=q[0]-c.x,dy=q[1]-c.y;
+        const px=w.x+dx*cos+dy*sin,py=w.y-dx*sin+dy*cos;
+        bx0=Math.min(bx0,px);bx1=Math.max(bx1,px);
+        by0=Math.min(by0,py);by1=Math.max(by1,py);
+      }
+      xMin=Math.min(xMin,bx0-padX);xMax=Math.max(xMax,bx1+padX);
+      yMin=Math.min(yMin,by0-padY);yMax=Math.max(yMax,by1+padY);
+    }
+  }
+  return {xMin,xMax,yMin,yMax,anim};
+}
+
 function requestCompute(){
   if(!worker){renderFallback();return;}
   if(workerTimeoutTimer){clearTimeout(workerTimeoutTimer);workerTimeoutTimer=null;}
   if(workerBusy){dirty=true;calcStatus.textContent='排队中...';return;}
   const p=ppu();
-  const vxMin=(0-view.ox)/p,vxMax=(canvasW-view.ox)/p;
-  const vyMin=(view.oy-canvasH)/p,vyMax=view.oy/p;
+  const sr=computeSampleRange();
   const targetCellSize=1/p;
   const paramVals=getParamValues();
   const ph=paramHash();
   const funcs=items.filter(it=>it.type==='function');
-  const toCompute=funcs.filter(f=>!f.hidden&&needsRecompute(f,ph,vxMin,vxMax,vyMin,vyMax));
+  const toCompute=funcs.filter(f=>!f.hidden&&needsRecompute(f,ph,sr));
   if(toCompute.length===0){
     calcStatus.textContent='就绪';
     document.getElementById('loadingToast').classList.remove('visible');
@@ -366,7 +411,7 @@ function requestCompute(){
   for(const f of toCompute)pendingHashes.set(f.id,{exprHash:exprHash((f.expr||'').trim()),paramHash:ph});
   calcStatus.textContent='计算中...';
   document.getElementById('loadingToast').classList.add('visible');
-  worker.postMessage({taskSeq,funcs:sendFuncs,viewXMin:vxMin,viewXMax:vxMax,viewYMin:vyMin,viewYMax:vyMax,targetCellSize,paramVals});
+  worker.postMessage({taskSeq,funcs:sendFuncs,viewXMin:sr.xMin,viewXMax:sr.xMax,viewYMin:sr.yMin,viewYMax:sr.yMax,targetCellSize,paramVals,canvasW,canvasH});
   workerTimeoutTimer=setTimeout(()=>{
     workerBusy=false;workerTimeoutTimer=null;
     document.getElementById('loadingToast').classList.remove('visible');
@@ -394,17 +439,19 @@ function viewKey(){
   return Math.round(view.ox*10)+','+Math.round(view.oy*10)+','+view.gridPixelSize.toFixed(2)+','+view.gridUnitLength+','+canvasW+'x'+canvasH;
 }
 
-function needsRecompute(f,ph,vxMin,vxMax,vyMin,vyMax){
+// 判断函数缓存是否覆盖当前所需采样域 sr。采样域本身含缓冲，采用小容差（2%），
+// 一旦视口/旋转角度/动画状态导致采样域越界即重算，保证可视区始终有数据。
+function needsRecompute(f,ph,sr){
   const c=cacheIdMap.get(f.id);
   if(!c||c.type==='skip'||c.type==='error')return true;
   if(c.exprHash!==exprHash((f.expr||'').trim())||c.paramHash!==ph)return true;
   const vr=c.viewRange;
   if(!vr||vr.xMin===undefined)return true;
-  const padX=(vr.xMax-vr.xMin)*0.05;
-  if(vxMin<vr.xMin-padX||vxMax>vr.xMax+padX)return true;
+  const tolX=(vr.xMax-vr.xMin)*0.02;
+  if(sr.xMin<vr.xMin-tolX||sr.xMax>vr.xMax+tolX)return true;
   if(vr.yMin!==undefined){
-    const padY=(vr.yMax-vr.yMin)*0.05;
-    if(vyMin<vr.yMin-padY||vyMax>vr.yMax+padY)return true;
+    const tolY=(vr.yMax-vr.yMin)*0.02;
+    if(sr.yMin<vr.yMin-tolY||sr.yMax>vr.yMax+tolY)return true;
   }
   return false;
 }
@@ -639,6 +686,31 @@ function drawGridTo(target){
   }
 }
 
+// 判定曲线片段经旋转显示后是否与画布相交（等距采样近似包围盒，超集判定：
+// 显示包围盒完全在画布外才返回 false）。用于跳过旋转时大量离屏片段。
+function segScreenVisible(pts, rot){
+  const n=pts.length;
+  if(n<2)return true;
+  const m=Math.max(2,Math.min(16,n));
+  const cos=rot?Math.cos(rot.rad):1,sin=rot?Math.sin(rot.rad):0;
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  for(let i=0;i<m;i++){
+    const idx=Math.floor((n-1)*i/(m-1));
+    const pt=pts[idx];
+    let sx,sy;
+    if(rot){
+      const ls=mathToScreen(pt[0],pt[1]);
+      const dx=ls.sx-rot.ax,dy=ls.sy-rot.ay;
+      sx=rot.sx+dx*cos-dy*sin; sy=rot.sy+dx*sin+dy*cos;
+    }else{
+      const ls=mathToScreen(pt[0],pt[1]); sx=ls.sx; sy=ls.sy;
+    }
+    if(sx<x0)x0=sx;if(sx>x1)x1=sx;
+    if(sy<y0)y0=sy;if(sy>y1)y1=sy;
+  }
+  return !(x1<0||x0>canvasW||y1<0||y0>canvasH);
+}
+
 function drawCurvesTo(target){
   const p=ppu();
   for(const it of items){
@@ -652,6 +724,7 @@ function drawCurvesTo(target){
       if(c.type==='explicit'){
         for(const seg of c.segments){
           if(seg.length<4)continue;
+          if(_rot&&!segScreenVisible(seg,_rot))continue;
           target.beginPath();
           const p0=mathToScreen(seg[0][0],seg[0][1]);
           target.moveTo(p0.sx,p0.sy);
@@ -664,7 +737,7 @@ function drawCurvesTo(target){
       }else if(c.type==='implicit'){
         if(_rot){
           // 旋转状态下不走离屏缓存，直接按本地坐标绘制（自动套用旋转变换）
-          drawImplicitTo(target,c,it.color);
+          drawImplicitTo(target,c,it.color,_rot);
         }else{
           const offKey=it.id+'|'+(c.exprHash||0)+'|'+(c.paramHash||0)+'|'+viewKey()+'|'+it.color;
           let off=offscreenCache.get(offKey);
@@ -684,11 +757,16 @@ function drawCurvesTo(target){
   }
 }
 
-function drawImplicitTo(target,c,color){
+function drawImplicitTo(target,c,color,_rot){
   target.strokeStyle=color;target.lineWidth=1.8;target.lineCap='round';
   try{
     for(const chain of c.segments){
       if(chain.length<4)continue;
+      if(_rot){
+        const pts=[];
+        for(let i=0;i<chain.length;i+=2)pts.push([chain[i],chain[i+1]]);
+        if(!segScreenVisible(pts,_rot))continue;
+      }
       target.beginPath();
       const q0=mathToScreen(chain[0],chain[1]);
       target.moveTo(q0.sx,q0.sy);
@@ -794,6 +872,21 @@ function resolveAllPoints(){
   for(const it of items){
     if(it.type!=='point')continue;
     let xErr=null,yErr=null;
+    // 圆上点模式：由绑定圆 + θ 直接定位，忽略 X/Y 配置（规避代数计算出现两个解）
+    if(it.circleMode==='circle'){
+      const c=items.find(i=>i.id===it.onCircleId&&i.type==='circle'&&!i.errorMsg);
+      if(c){
+        const theta=Number(it.theta)||0;
+        it.x=c.cx+c.radius*Math.cos(theta);
+        it.y=c.cy+c.radius*Math.sin(theta);
+      }else{
+        xErr='绑定的圆不存在或无效';
+        yErr=xErr;
+      }
+      it.xErr=xErr;it.yErr=yErr;
+      it.errorMsg=xErr||yErr||null;
+      continue;
+    }
     const xMode=it.xMode||'fixed';
     if(xMode==='fixed'){
       it.x=Number(it.xFixed!==undefined?it.xFixed:it.x)||0;
@@ -815,6 +908,19 @@ function resolveAllPoints(){
     }else if(yMode==='func'&&it.yFuncId){
       const r=evalBoundFunc(it.yFuncId,it.x);
       if(r.error)yErr=r.error;else it.y=r.value;
+    }else if(yMode==='line'&&it.yLineId){
+      const seg=items.find(i=>i.id===it.yLineId&&(i.type==='segment'||i.type==='line'||i.type==='ray')&&!i.errorMsg);
+      if(seg&&seg.pointA&&seg.pointB){
+        const x1=seg.pointA.x,y1=seg.pointA.y,x2=seg.pointB.x,y2=seg.pointB.y;
+        if(Math.abs(x2-x1)>=1e-12){
+          const k=(y2-y1)/(x2-x1);
+          it.y=k*it.x+(y1-k*x1);
+        }else{
+          yErr='绑定的连线无效或为垂直线';
+        }
+      }else{
+        yErr='绑定的连线无效或为垂直线';
+      }
     }
     it.xErr=xErr;it.yErr=yErr;
     it.errorMsg=xErr||yErr||null;
@@ -1331,6 +1437,75 @@ function nextSegmentLabel(){
 
 
 
+// 将数学坐标按项的文件夹旋转逆变换到其本地坐标系（用于命中检测）。
+// 旋转为刚体变换，本地坐标下计算距离等价于屏幕像素距离（×ppu）。
+function toLocalMath(mx,my,it){
+  const rot=getItemRotation(it);
+  if(!rot)return{x:mx,y:my};
+  const p=ppu();
+  const cx=(rot.sx-view.ox)/p,cy=(view.oy-rot.sy)/p;
+  const wx=(rot.ax-view.ox)/p,wy=(view.oy-rot.ay)/p;
+  const dx=mx-cx,dy=my-cy;
+  const cos=Math.cos(rot.rad),sin=Math.sin(rot.rad);
+  // 正变换 f(P)=实时中心+R(rad)*(P-支点)，逆变换 P=支点+R(-rad)*(M-实时中心)
+  return{x:wx+dx*cos+dy*sin,y:wy-dx*sin+dy*cos};
+}
+// 点到连线项（线段/直线/射线）的像素距离；用数学坐标计算后 ×ppu。
+function distToLineItemPx(it,mx,my,p){
+  const ax=it.pointA.x,ay=it.pointA.y,bx=it.pointB.x,by=it.pointB.y;
+  const dx=bx-ax,dy=by-ay;
+  const len2=dx*dx+dy*dy;
+  if(len2<1e-12)return Math.hypot(mx-ax,my-ay)*p;
+  const t=((mx-ax)*dx+(my-ay)*dy)/len2;
+  if(it.type==='segment'){
+    const tt=Math.max(0,Math.min(1,t));
+    return Math.hypot(mx-(ax+tt*dx),my-(ay+tt*dy))*p;
+  }
+  if(it.type==='ray'&&t<0)return Math.hypot(mx-ax,my-ay)*p;
+  return Math.abs(dx*(ay-my)-dy*(ax-mx))/Math.sqrt(len2)*p;
+}
+// 添加坐标点模式下，检测点击点附近（像素阈值 hitPx 内）的图像，返回最近命中：
+//   {kind:'circle',circleId,theta} | {kind:'function',fnId} | {kind:'line',lineId}
+// 命中范围随数轴单位长度缩放；无命中返回 null。
+function findShapeHit(mx,my,p,hitPx){
+  let best=null;
+  for(const it of items){
+    if(it.type!=='circle'||it.hidden||it.errorMsg)continue;
+    const L=toLocalMath(mx,my,it);
+    const dist=Math.abs(Math.hypot(L.x-it.cx,L.y-it.cy)-it.radius)*p;
+    if(dist<=hitPx&&(!best||dist<best.dist))best={kind:'circle',circleId:it.id,theta:Math.atan2(L.y-it.cy,L.x-it.cx),dist};
+  }
+  for(const it of items){
+    if(it.type!=='function'||it.hidden)continue;
+    const c=cacheIdMap.get(it.id);
+    if(!c||c.type==='skip'||c.type==='error')continue;
+    const L=toLocalMath(mx,my,it);
+    if(c.type==='explicit'){
+      for(const seg of c.segments){
+        for(let i=0;i<seg.length;i++){
+          const dist=Math.hypot(seg[i][0]-L.x,seg[i][1]-L.y)*p;
+          if(dist<=hitPx&&(!best||dist<best.dist))best={kind:'function',fnId:it.id,dist};
+        }
+      }
+    }else if(c.type==='implicit'){
+      for(const chain of c.segments){
+        for(let i=0;i<chain.length;i+=2){
+          const dist=Math.hypot(chain[i]-L.x,chain[i+1]-L.y)*p;
+          if(dist<=hitPx&&(!best||dist<best.dist))best={kind:'function',fnId:it.id,dist};
+        }
+      }
+    }
+  }
+  for(const it of items){
+    if((it.type!=='segment'&&it.type!=='line'&&it.type!=='ray')||it.hidden)continue;
+    if(!it.pointA||!it.pointB||it.k===Infinity)continue;
+    const L=toLocalMath(mx,my,it);
+    const dist=distToLineItemPx(it,L.x,L.y,p);
+    if(dist<=hitPx&&(!best||dist<best.dist))best={kind:'line',lineId:it.id,dist};
+  }
+  return best;
+}
+
 function placePointAt(clientX,clientY){
   const rect=canvas.getBoundingClientRect();
   const px=clientX-rect.left,py=clientY-rect.top;
@@ -1345,9 +1520,22 @@ function placePointAt(clientX,clientY){
       return;
     }
   }
+  // 命中范围随数轴单位长度缩放（下限 12px 保证可点中）
+  const p=ppu();
+  const hitPx=Math.max(12,su*p*0.5);
+  const hit=findShapeHit(m.mx,m.my,p,hitPx);
   const color=nextColor(['#ef4444','#22c55e','#3b82f6','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316']);
   const label=nextPointLabel();
-  const item={id:nextItemId('point'),type:'point',x:snapX,y:snapY,color,hidden:false,label};
+  let item;
+  if(hit&&hit.kind==='circle'){
+    item={id:nextItemId('point'),type:'point',color,hidden:false,label,circleMode:'circle',onCircleId:hit.circleId,theta:hit.theta};
+  }else if(hit&&hit.kind==='function'){
+    item={id:nextItemId('point'),type:'point',color,hidden:false,label,xMode:'fixed',xFixed:snapX,x:snapX,yMode:'func',yFuncId:hit.fnId};
+  }else if(hit&&hit.kind==='line'){
+    item={id:nextItemId('point'),type:'point',color,hidden:false,label,xMode:'fixed',xFixed:snapX,x:snapX,yMode:'line',yLineId:hit.lineId};
+  }else{
+    item={id:nextItemId('point'),type:'point',x:snapX,y:snapY,color,hidden:false,label};
+  }
   items.push(item);
   if(batchMode){renderItemCards();}
   else{selectItem(item.id);}
@@ -2040,6 +2228,23 @@ function funcOptions(selId){
   }
   return s;
 }
+function lineOptions(selId){
+  let s='<option value="">无</option>';
+  for(const f of items){
+    if(f.type!=='segment'&&f.type!=='line'&&f.type!=='ray')continue;
+    const typeName=f.type==='segment'?'线段':(f.type==='line'?'直线':'射线');
+    s+='<option value="'+f.id+'"'+(f.id===selId?' selected':'')+'>'+escapeHtml(f.id)+'（'+typeName+'）</option>';
+  }
+  return s;
+}
+function circleOptions(selId){
+  let s='<option value="">无</option>';
+  for(const c of items){
+    if(c.type!=='circle')continue;
+    s+='<option value="'+c.id+'"'+(c.id===selId?' selected':'')+'>'+escapeHtml(c.id)+'</option>';
+  }
+  return s;
+}
 
 // 实时刷新展开中的坐标点卡片：更新 X/Y 值显示、Y 函数下拉选项与绑定失效提示。
 // 在参数值变化、函数增删后调用，避免整卡重建打断正在编辑的输入框。
@@ -2051,13 +2256,27 @@ function refreshPointDisplays(){
     if(!it||it.type!=='point')return;
     const xv=card.querySelector('[data-ptxval]');
     const yv=card.querySelector('[data-ptyval]');
+    const xyv=card.querySelector('[data-ptxyval]');
     if(xv)xv.textContent=formatNumber(it.x);
     if(yv)yv.textContent=formatNumber(it.y);
+    if(xyv)xyv.textContent='('+formatNumber(it.x)+', '+formatNumber(it.y)+')';
     const yf=card.querySelector('[data-ptyfunc]');
     if(yf){
       const sel=yf.value;
       yf.innerHTML=funcOptions(it.yFuncId);
       if(sel&&yf.querySelector('option[value="'+sel+'"]'))yf.value=sel;
+    }
+    const yl=card.querySelector('[data-ptyline]');
+    if(yl){
+      const sel=yl.value;
+      yl.innerHTML=lineOptions(it.yLineId);
+      if(sel&&yl.querySelector('option[value="'+sel+'"]'))yl.value=sel;
+    }
+    const cs=card.querySelector('[data-ptcircle]');
+    if(cs){
+      const sel=cs.value;
+      cs.innerHTML=circleOptions(it.onCircleId);
+      if(sel&&cs.querySelector('option[value="'+sel+'"]'))cs.value=sel;
     }
     const yerr=card.querySelector('[data-ptyerr]');
     if(yerr){
@@ -2069,6 +2288,17 @@ function refreshPointDisplays(){
         yerr.style.display='none';
       }
     }
+    const circErr=card.querySelector('[data-ptcircerr]');
+    if(circErr){
+      const circleMissing=it.circleMode==='circle'&&it.onCircleId&&!items.some(c=>c.type==='circle'&&c.id===it.onCircleId);
+      if(circleMissing){
+        circErr.textContent='绑定的圆已删除，请重新选择圆';
+        circErr.style.display='block';
+      }else{
+        circErr.textContent='';
+        circErr.style.display='none';
+      }
+    }
   });
 }
 
@@ -2078,6 +2308,7 @@ function createPointExpandedHTML(it){
   const label=it.label||'';
   const xMode=it.xMode||'fixed';
   const yMode=it.yMode||'fixed';
+  const circleMode=it.circleMode==='circle'?'circle':'xy';
   const xFixed=(it.xFixed!==undefined?it.xFixed:it.x);
   const yFixed=(it.yFixed!==undefined?it.yFixed:it.y);
   const escExpr=function(s){return escapeHtml(s==null?'':s).replace(/"/g,'&quot;');};
@@ -2090,8 +2321,17 @@ function createPointExpandedHTML(it){
   const modeOpts=function(sel){
     return '<option value="fixed"'+(sel==='fixed'?' selected':'')+'>固定</option>'+
       '<option value="param"'+(sel==='param'?' selected':'')+'>参数</option>'+
-      '<option value="func"'+(sel==='func'?' selected':'')+'>函数</option>';
+      '<option value="func"'+(sel==='func'?' selected':'')+'>函数</option>'+
+      '<option value="line"'+(sel==='line'?' selected':'')+'>连线</option>';
   };
+  const modeRow='<div class="pt-row">'+
+    '<span class="pt-axis">定位</span>'+
+    '<select data-ptmode title="定位方式">'+
+      '<option value="xy"'+(circleMode==='xy'?' selected':'')+'>直角坐标</option>'+
+      '<option value="circle"'+(circleMode==='circle'?' selected':'')+'>圆上点(θ)</option>'+
+    '</select>'+
+    '<span class="pt-hint">'+(circleMode==='circle'?'以绑定圆+角度θ定位，规避双解':'点击画布图像可直接绑定函数/圆/连线')+'</span>'+
+  '</div>';
   const rowX='<div class="pt-row">'+
     '<span class="pt-axis">X</span>'+
     '<select data-ptxmode>'+modeOptsX(xMode==='func'?'fixed':xMode)+'</select>'+
@@ -2107,19 +2347,33 @@ function createPointExpandedHTML(it){
     '<span class="pt-wrap" data-pty-fixedwrap'+(yMode==='fixed'?'':' style="display:none;"')+'><input type="number" data-pty-fixed step="0.01" value="'+safeToFixed(yFixed,dp)+'" style="width:76px;" title="固定数值"></span>'+
     '<span class="pt-wrap" data-pty-paramwrap'+(yMode==='param'?'':' style="display:none;"')+'><input type="text" data-ptyparam-expr placeholder="如 3*b-1" value="'+escExpr(yExpr)+'" style="width:112px;" title="参数表达式，可引用已创建的参数"></span>'+
     '<span class="pt-wrap" data-pty-funcwrap'+(yMode==='func'?'':' style="display:none;"')+'><select data-ptyfunc style="max-width:90px;" title="绑定函数唯一ID">'+funcOptions(it.yFuncId)+'</select></span>'+
+    '<span class="pt-wrap" data-pty-linewrap'+(yMode==='line'?'':' style="display:none;"')+'><select data-ptyline style="max-width:110px;" title="绑定连线(一次函数)">'+lineOptions(it.yLineId)+'</select></span>'+
     '<span class="pt-val" data-ptyval>'+formatNumber(it.y)+'</span>'+
-    '<span class="pt-hint">'+((yMode==='func'?'y=f(x)':yMode==='param'?'参数表达式':''))+'</span>'+
+    '<span class="pt-hint">'+((yMode==='func'?'y=f(x)':yMode==='param'?'参数表达式':yMode==='line'?'y=kx+b':''))+'</span>'+
   '</div>'+
   '<div class="pt-row pt-row-err" data-ptyerr style="display:none;"></div>';
+  const rowCircle='<div class="pt-row">'+
+    '<span class="pt-axis">圆</span>'+
+    '<select data-ptcircle style="max-width:110px;" title="绑定圆唯一ID">'+circleOptions(it.onCircleId)+'</select>'+
+    '<input type="number" data-pttheta step="0.01" value="'+safeToFixed((Number(it.theta)||0)*180/Math.PI,dp)+'" style="width:76px;" title="角度(度)，0°=圆最右端，逆时针">'+
+    '<span class="pt-hint">θ(度)</span>'+
+  '</div>'+
+  '<div class="pt-row">'+
+    '<span class="pt-axis">坐标</span>'+
+    '<span class="pt-val" data-ptxyval>('+formatNumber(it.x)+', '+formatNumber(it.y)+')</span>'+
+  '</div>'+
+  '<div class="pt-row pt-row-err" data-ptcircerr style="display:none;"></div>';
   return '<div class="item-card-expanded">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;"><span class="drag-handle" draggable="true" title="按住拖动排序">&#9776; <span class="type-tag point">坐标 #'+seq+(label?' <b>'+label+'</b>':'')+'</span></span>'+
     '<div style="display:flex;align-items:center;gap:6px;"><span class="item-id">ID: '+it.id+'</span>'+
     '<button class="vis-btn" data-vis="'+it.id+'">'+(it.hidden?'显示':'隐藏')+'</button>'+
     '<button class="danger-btn del-btn-sm" data-del="'+it.id+'">删除</button></div></div>'+
     '<div class="item-meta point-edit-meta">'+
-    rowX+rowY+
+    modeRow+
+    '<div data-pt-xyrows'+(circleMode==='circle'?' style="display:none;"':'')+'>'+rowX+rowY+'</div>'+
+    '<div data-pt-circrow'+(circleMode==='circle'?'':' style="display:none;"')+'>'+rowCircle+'</div>'+
     '<div style="display:flex;align-items:center;gap:8px;"><input type="color" value="'+it.color+'" data-color="'+it.id+'" title="颜色">'+
-    '<span class="pt-hint">函数模式：将另一轴的值代入绑定函数计算</span></div>'+
+    '<span class="pt-hint">函数/连线模式：将当前 X 代入绑定图像计算 Y</span></div>'+
     '</div>'+
     '</div>';
 }
@@ -2237,20 +2491,32 @@ function setupFuncExpandedEvents(card,it){
 function setupPointExpandedEvents(card,it){
   const modeX=card.querySelector('[data-ptxmode]');
   const modeY=card.querySelector('[data-ptymode]');
+  const modeSel=card.querySelector('[data-ptmode]');
+  const circleSel=card.querySelector('[data-ptcircle]');
+  const thetaInp=card.querySelector('[data-pttheta]');
   const fixedX=card.querySelector('[data-ptx-fixed]');
   const fixedY=card.querySelector('[data-pty-fixed]');
   const paramX=card.querySelector('[data-ptxparam-expr]');
   const paramY=card.querySelector('[data-ptyparam-expr]');
   const funcY=card.querySelector('[data-ptyfunc]');
+  const lineY=card.querySelector('[data-ptyline]');
   const valX=card.querySelector('[data-ptxval]');
   const valY=card.querySelector('[data-ptyval]');
+  const xyVal=card.querySelector('[data-ptxyval]');
   const errX=card.querySelector('[data-ptxerr]');
   const errY=card.querySelector('[data-ptyerr]');
+  const circErr=card.querySelector('[data-ptcircerr]');
+
+  function syncThetaFromXY(){
+    const c=items.find(i=>i.type==='circle'&&i.id===it.onCircleId&&!i.errorMsg);
+    if(c&&isFinite(it.x)&&isFinite(it.y))it.theta=Math.atan2(it.y-c.cy,it.x-c.cx);
+  }
 
   function apply(silent){
     resolveAllPoints();
     if(valX)valX.textContent=formatNumber(it.x);
     if(valY)valY.textContent=formatNumber(it.y);
+    if(xyVal)xyVal.textContent='('+formatNumber(it.x)+', '+formatNumber(it.y)+')';
     if(errX){errX.textContent=it.xErr||'';errX.style.display=it.xErr?'block':'none';}
     if(errY){errY.textContent=it.yErr||'';errY.style.display=it.yErr?'block':'none';}
     if(it.errorMsg){
@@ -2267,6 +2533,33 @@ function setupPointExpandedEvents(card,it){
     apply(true);
     renderExpandedItem(it.id);
   }
+  if(modeSel)modeSel.addEventListener('change',()=>{
+    if(modeSel.value==='circle'){
+      resolveAllPoints();
+      it.circleMode='circle';
+      if(!it.onCircleId){
+        const firstCircle=items.find(c=>c.type==='circle');
+        if(firstCircle)it.onCircleId=firstCircle.id;
+      }
+      syncThetaFromXY();
+      refreshCard();
+    }else{
+      resolveAllPoints();
+      it.circleMode='xy';
+      it.xMode='fixed';it.xFixed=Number(it.x)||0;
+      it.yMode='fixed';it.yFixed=Number(it.y)||0;
+      refreshCard();
+    }
+  });
+  if(circleSel)circleSel.addEventListener('change',()=>{
+    it.onCircleId=circleSel.value||null;
+    syncThetaFromXY();
+    apply();
+  });
+  if(thetaInp)thetaInp.addEventListener('input',()=>{
+    it.theta=(Number(thetaInp.value)||0)*Math.PI/180;
+    apply(true);
+  });
   if(modeX)modeX.addEventListener('change',()=>{it.xMode=modeX.value;refreshCard();});
   if(modeY)modeY.addEventListener('change',()=>{it.yMode=modeY.value;refreshCard();});
   if(fixedX)fixedX.addEventListener('input',()=>{it.xFixed=Number(fixedX.value)||0;apply(true);});
@@ -2280,6 +2573,7 @@ function setupPointExpandedEvents(card,it){
     paramY.addEventListener('blur',()=>{if(it.yErr){it._errNotified=false;apply(false);}});
   }
   if(funcY)funcY.addEventListener('change',()=>{it.yFuncId=funcY.value||null;if(funcY.value)it.yMode='func';apply();});
+  if(lineY)lineY.addEventListener('change',()=>{it.yLineId=lineY.value||null;if(lineY.value)it.yMode='line';apply();});
 }
 
 
@@ -2671,6 +2965,7 @@ function removeItem(id){
         `该点被 ${dependentSegments.length} 个连线项（${segNames}）引用，删除后将同时删除这些连线。<br>确认删除？`,
         (ok) => {
           if (ok) {
+            clearRotationCenterRef(deleted);
             // 删除所有依赖的连线
             const ids = new Set(dependentSegments.map(s => s.id));
             items = items.filter(it => !ids.has(it.id));
@@ -2690,10 +2985,44 @@ function removeItem(id){
     // 若无依赖，则继续往下执行普通的删除逻辑
   }
 
+  if(deleted.type==='circle'){
+    const affectedPoints=items.filter(p=>p.type==='point'&&p.circleMode==='circle'&&p.onCircleId===deleted.id);
+    if(affectedPoints.length>0){
+      resolveAllPoints();
+      showGenericConfirm('删除圆','圆 <b>'+deleted.id+'</b> 正被 '+affectedPoints.length+' 个坐标点绑定（圆上点模式）。<br>删除后，这些坐标点将转为固定坐标（保持当前圆上位置）。<br><br>确认删除？',(ok)=>{
+        if(ok){
+          for(const p of affectedPoints){
+            p.circleMode='xy';
+            p.onCircleId=null;
+            p.theta=0;
+            p.xMode='fixed';p.xFixed=Number(p.x)||0;
+            p.yMode='fixed';p.yFixed=Number(p.y)||0;
+          }
+          performRemove(deleted,affectedPoints,[]);
+        }
+      });
+      return;
+    }
+    performRemove(deleted,[],[]);
+    return;
+  }
+
   if(deleted.type==='function'){
     const affectedPoints=items.filter(p=>p.type==='point'&&((p.xMode==='func'&&p.xFuncId===deleted.id)||(p.yMode==='func'&&p.yFuncId===deleted.id)));
     if(affectedPoints.length>0){
       showGenericConfirm('删除函数','函数 <b>'+deleted.id+'</b> 正被 '+affectedPoints.length+' 个坐标点绑定（函数模式）。<br>删除后，这些坐标点将自动重置为固定模式。<br><br>确认删除？',(ok)=>{
+        if(ok)performRemove(deleted,affectedPoints,[]);
+      });
+      return;
+    }
+    performRemove(deleted,[],[]);
+    return;
+  }
+
+  if(deleted.type==='segment'||deleted.type==='line'||deleted.type==='ray'){
+    const affectedPoints=items.filter(p=>p.type==='point'&&p.yMode==='line'&&p.yLineId===deleted.id);
+    if(affectedPoints.length>0){
+      showGenericConfirm('删除连线','连线 <b>'+deleted.id+'</b> 正被 '+affectedPoints.length+' 个坐标点绑定（连线模式）。<br>删除后，这些坐标点将自动重置为固定模式。<br><br>确认删除？',(ok)=>{
         if(ok)performRemove(deleted,affectedPoints,[]);
       });
       return;
@@ -2719,6 +3048,19 @@ function removeItem(id){
   performRemove(deleted,[],[]);
 }
 
+// 删除坐标点后：若某文件夹把它当作旋转中心点，降级为原点并清空公转偏移基准
+function clearRotationCenterRef(deleted){
+  if(!deleted||deleted.type!=='point')return;
+  for(const f of folders){
+    const r=f.rotation;
+    if(r&&r.centerMode==='folder'&&r.centerPointId===deleted.id){
+      r.centerPointId=null;
+      r._switchCenter={x:0,y:0};
+      r._lastCenter={x:0,y:0};
+    }
+  }
+}
+
 function performRemove(deleted,affectedPoints,affectedFuncs){
   items=items.filter(it=>it.id!==deleted.id);
   removeFromFolder(deleted.id);
@@ -2731,6 +3073,11 @@ function performRemove(deleted,affectedPoints,affectedFuncs){
       p.errorMsg='绑定的函数已被删除';
       if(p.xMode==='func'&&p.xFuncId===deleted.id){p.xMode='fixed';p.xFuncId=null;}
       if(p.yMode==='func'&&p.yFuncId===deleted.id){p.yMode='fixed';p.yFuncId=null;}
+    }
+  }else if(deleted.type==='segment'||deleted.type==='line'||deleted.type==='ray'){
+    for(const p of affectedPoints){
+      p.errorMsg='绑定的连线已被删除';
+      if(p.yMode==='line'&&p.yLineId===deleted.id){p.yMode='fixed';p.yLineId=null;}
     }
   }
   renderItemCards();
@@ -3411,13 +3758,15 @@ function getProjectDataPayload() {
   };
   return { version: 3, settings, items, idSeq, folders: cleanFoldersPayload(), regionLayout: getRegionLayout() };
 }
-// 序列化时剔除旋转的纯运行时字段（动画起始角/中心缓存），保留有意义的平移补偿 _panX/_panY
+// 序列化时剔除旋转的纯运行时字段（动画起始角/平移补偿），保留公转偏移基准 _switchCenter（需持久化）。
 function cleanFoldersPayload(){
   return folders.map(f=>{
     if(!f.rotation)return f;
     const r={...f.rotation};
     delete r._initial;
     delete r._lastCenter;
+    delete r._panX;
+    delete r._panY;
     return {...f, rotation:r};
   });
 }
@@ -10120,20 +10469,22 @@ function ensureFolderRotation(f){
   if(!f.rotation){
     f.rotation={enabled:true,angle:0,mode:'loop',dir:'cw',centerMode:'folder',centerPointId:null,centerX:0,centerY:0,centerExprX:'',centerExprY:'',_initial:0};
   }
+  // 公转偏移基准：切换旋转中心瞬间冻结的支点（数学坐标）。渲染时
+  // f(P)=实时中心+R(angle)*(P-支点)，即图形相对支点旋转、整体跟随实时中心平移。
+  // 新增/拖拽图形时 P 变化，轨道自动按新位置生效，无需逐项记录偏移。
+  if(!f.rotation._switchCenter){const c=computeRotationCenter(f);f.rotation._switchCenter={x:c?c.x:0,y:c?c.y:0};}
 }
-// 旋转中心切换补偿：当旋转中心配置改变时，调整平移补偿 _panX/_panY，
-// 使图形视觉位置保持不变（不再因中心切换而整体移动），后续旋转仍绕新中心。
-// oldC 为修改中心配置前捕获的原中心（数学坐标）；若传入 null/undefined 则用当前中心兜底。
+// 旋转中心切换：在切换瞬间把新中心冻结为公转支点 _switchCenter。
+// 此后图形相对支点旋转（轨道保持切换时的相对方位），整体跟随实时中心平移；
+// 不做每帧偏移重算，避免中心点靠近图形时图形被吸附到中心、看起来原地自转。
 function rebaseRotationCenter(f, oldC){
   if(!f||!f.rotation)return;
   const r=f.rotation;
   const newC=computeRotationCenter(f);
   if(!newC)return;
-  const o=oldC||r._lastCenter||newC;
-  if(o.x===newC.x&&o.y===newC.y){r._lastCenter={x:newC.x,y:newC.y};return;}
-  const dx=o.x-newC.x,dy=o.y-newC.y;
-  r._panX=(r._panX||0)+dx;
-  r._panY=(r._panY||0)+dy;
+  r._panX=0;
+  r._panY=0;
+  r._switchCenter={x:newC.x,y:newC.y};
   r._lastCenter={x:newC.x,y:newC.y};
 }
 
@@ -10168,16 +10519,19 @@ function getItemRotation(it){
   if(!c)return null;
   const p=ppu();
   const rad=r.angle*Math.PI/180;
-  // 中心切换补偿：实际旋转中心 = 配置中心 + 平移补偿，切换时图形视觉位置不跳变
-  const px=c.x+(r._panX||0);
-  const py=c.y+(r._panY||0);
-  return {sx:view.ox+px*p, sy:view.oy-py*p, rad};
+  // 实时中心（可能随坐标点拖拽/含参表达式变化）：图像整体平移跟随该点。
+  // 公转支点 _switchCenter：切换旋转中心瞬间冻结，图形相对它旋转，轨道保持不变。
+  const w=r._switchCenter||{x:c.x,y:c.y};
+  const cs=mathToScreen(c.x,c.y);
+  const ws=mathToScreen(w.x,w.y);
+  return {sx:cs.sx, sy:cs.sy, ax:ws.sx, ay:ws.sy, rad};
 }
 
 function beginItemRotation(rot){
   ctx.save();
   ctx.translate(rot.sx,rot.sy);
   ctx.rotate(rot.rad);
+  ctx.translate(-rot.ax,-rot.ay);
   rot._ox=view.ox;rot._oy=view.oy;
   view.ox=0;view.oy=0;
 }
@@ -10414,6 +10768,7 @@ function toggleFolderRotationAnim(f){
   folderRotAnims.set(f.id,{raf:0});
   folderRotAnims.get(f.id).raf=requestAnimationFrame(step);
   renderRotationPanel();
+  requestCompute(); // 动画期间改用圆域采样，保证任意角度图像完整
 }
 
 function stopFolderRotation(fid){
@@ -10426,6 +10781,7 @@ function stopFolderRotation(fid){
   }
   renderRotationPanel();
   renderFull();
+  requestCompute(); // 动画停止后切回静态包络采样
 }
 
 function syncRotAngleLabel(f){
@@ -10913,13 +11269,13 @@ function initNewFeatures(){
 }
 initNewFeatures();
 // ==================== 外部项目模式（门户对接） ====================
-// 门户「我的页面 / 公开作品」点击打开时跳转本页：plotter/index.html?u=<userId>&p=<项目文件夹>
-// 本页据此从 GitHub 读取项目数据并加载（复用门户的 GitHub 配置）；
+// 门户「我的页面 / 公开作品」点击打开时跳转本页：plotter/index.html?t=<令牌>
+// 本页据此向点鸭校验一次性令牌后从 GitHub 读取项目数据并加载（复用门户的 GitHub 配置）；
+// 令牌不携带用户数据，链接仅包含 ?t=<token>。
 // 外部模式下「保存到云端」写回原项目文件夹 projects/<folder>/（project.json + question.txt + analysis.txt + info.json）。
 (function () {
   var EXT_CFG_KEY = 'fnplt_gh_config_v2';
   var extProject = null; // { cfg, userId, folder }
-  var OPEN_TICKET_KEY = 'fnplt_open_ticket_v1'; // 回退票据：与门户同源共享的短期一次性票据（点鸭未启用时）
   var OPEN_TICKET_SESS = 'fnplt_open_ticket_sess_v1'; // 打开会话缓存：验证成功后写 sessionStorage，刷新保留、关闭页面/新开标签页即消失
 
   function extReadCfg(key) {
@@ -10935,25 +11291,10 @@ initNewFeatures();
       }));
     } catch (e) {}
   }
-  /* 校验打开票据（回退路径）：必须与 URL 的 u/p 完全匹配且未过期。
-   * 票据由门户打开项目时写入（存 localStorage，不随 URL 传递），
-   * 直接构造 / 复制 ?u=&p= 链接拿不到票据，将无法通过校验。 */
-  function extVerifyTicket(userId, folder) {
-    try {
-      var raw = localStorage.getItem(OPEN_TICKET_KEY);
-      if (!raw) return false;
-      var map = JSON.parse(raw) || {};
-      var t = map[String(userId || '') + '/' + String(folder || '')];
-      if (!t || t.u !== String(userId || '') || t.p !== String(folder || '')) return false;
-      if (!t.exp || Date.now() > t.exp) {
-        try { delete map[String(userId || '') + '/' + String(folder || '')]; localStorage.setItem(OPEN_TICKET_KEY, JSON.stringify(map)); } catch (e2) {}
-        return false;
-      }
-      return true;
-    } catch (e) {
-      return false;
-    }
+  function extSessClear() {
+    try { sessionStorage.removeItem(OPEN_TICKET_SESS); } catch (e) {}
   }
+
   function extGetConfig() {
     var cfg = extReadCfg('fnplt_gh_config') || extReadCfg(EXT_CFG_KEY);
     if (!cfg || !cfg.token || !cfg.owner || !cfg.repo) return null;
@@ -11012,51 +11353,53 @@ initNewFeatures();
     var token = sp.get('t') || sp.get('token');
     var userId = sp.get('u');
     var folder = sp.get('p');
-    if (!token && !(userId && folder)) { extResetToBlank(); return; }
+    // 无任何打开参数：本地工具模式，直接进入空白新项目（不校验）。
+    if (!token && !userId && !folder) { extResetToBlank(); return; }
+    // 仅令牌模式：链接只允许携带令牌参数，禁止把用户数据(u/p)暴露在链接里。
+    // 缺令牌或携带 u/p（旧链接）时一律锁屏，引导回到我的页面重新打开。
+    if (!token || userId || folder) { extShowInvalidTicket(); return; }
 
     var sess = extSessGet();
-    // 令牌模式：刷新页面时命中 sessionStorage 缓存（令牌已消费、本标签页会话仍在），直接放行
-    if (token) {
-      if (sess && sess.token === token && sess.u && sess.p && sess.exp >= Date.now()) {
-        extOpen(sess.u, sess.p);
-        return;
-      }
-      // 首次打开：向点鸭校验令牌并一次性消费；成功后缓存到 sessionStorage（刷新保留、关闭页面失效）
-      if (window.PlotterTicket && PlotterTicket.verify) {
-        PlotterTicket.verify(token).then(function (res) {
-          if (res && res.u && res.p) {
-            extSessSet(res.u, res.p, res.exp, token);
-            extOpen(res.u, res.p);
-          } else {
-            extResetToBlank();
-            extToast('链接无效或已过期，请从「我的」页面重新打开该项目');
-          }
-        });
-        return;
-      }
-      extResetToBlank();
-      extToast('链接无效或已过期，请从「我的」页面重新打开该项目');
+    // 刷新页面时命中 sessionStorage 缓存（令牌已消费、本标签页会话仍在），直接放行
+    if (sess && sess.token === token && sess.u && sess.p && sess.exp >= Date.now()) {
+      extOpen(sess.u, sess.p);
       return;
     }
-
-    // 回退路径：u/p + 本地票据（点鸭未启用时）
-    if (sess && !sess.token && sess.u === userId && sess.p === folder && sess.exp >= Date.now()) {
-      extOpen(userId, folder);
+    // 首次打开：向点鸭校验令牌并一次性消费；成功后缓存到 sessionStorage（刷新保留、关闭页面失效）
+    if (window.PlotterTicket && PlotterTicket.verify) {
+      PlotterTicket.verify(token).then(function (res) {
+        if (res && res.u && res.p) {
+          extSessSet(res.u, res.p, res.exp, token);
+          extOpen(res.u, res.p);
+        } else {
+          extShowInvalidTicket();
+        }
+      });
       return;
     }
-    if (!extVerifyTicket(userId, folder)) {
-      extResetToBlank();
-      extToast('链接无效或已过期，请从「我的」页面重新打开该项目');
-      return;
-    }
-    var tExp = 0;
-    try {
-      var map = JSON.parse(localStorage.getItem(OPEN_TICKET_KEY) || '{}') || {};
-      var tt = map[String(userId) + '/' + String(folder)];
-      if (tt && tt.exp) tExp = Number(tt.exp) || 0;
-    } catch (e) {}
-    extSessSet(userId, folder, tExp, null);
-    extOpen(userId, folder);
+    extShowInvalidTicket();
+  }
+  // 令牌失效/过期/含用户数据参数：全屏锁屏禁止操作，引导回到「我的」页面重新打开。
+  // 从门户我的页面打开（同源 referrer）时新标签页打开我的页面，其余情况当前页跳转。
+  function extShowInvalidTicket() {
+    extHideLoading();
+    extSessClear();
+    try { resetProjectData(); } catch (e) {}
+    if (document.getElementById('extInvalidOv')) return;
+    var fromPortal = !!(document.referrer && document.referrer.indexOf(location.origin) === 0);
+    var ov = document.createElement('div');
+    ov.id = 'extInvalidOv';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(15,23,42,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;font-family:inherit;text-align:center;';
+    ov.innerHTML =
+      '<div style="width:56px;height:56px;border-radius:50%;border:2px solid #f59e0b;display:flex;align-items:center;justify-content:center;font-size:26px;color:#f59e0b;">!</div>' +
+      '<div style="font-size:18px;font-weight:600;">链接无效或已过期</div>' +
+      '<div style="font-size:13px;color:#94a3b8;max-width:340px;">该打开链接已失效，请从「我的」页面重新打开该项目。</div>' +
+      '<button id="extInvalidBack" style="margin-top:10px;padding:10px 28px;border:none;border-radius:8px;background:#6366f1;color:#fff;font-size:14px;cursor:pointer;">回到我的页面</button>';
+    document.body.appendChild(ov);
+    document.getElementById('extInvalidBack').addEventListener('click', function () {
+      var url = '../index.html?page=myworks';
+      if (fromPortal) { window.open(url, '_blank'); } else { window.location.href = url; }
+    });
   }
   async function extOpen(userId, folder) {
     var cfg = extGetConfig();
@@ -11082,13 +11425,18 @@ initNewFeatures();
         var qRaw = await UserAuth.ghRead(cfg, extJoin(base, 'question.txt'));
         if (qRaw != null && String(qRaw).trim() !== '') {
           try { setQuestionContent(JSON.parse(qRaw)); } catch (e2) { setQuestionContent({ type: 'text', text: String(qRaw) }); }
+        } else {
+          // 目标项目无题目：强制清空残留的上一项目题目，避免 MD 编辑框数据泄露
+          setQuestionContent(null);
         }
-      } catch (e3) {}
+      } catch (e3) {
+        setQuestionContent(null);
+      }
       try {
         var aRaw = await UserAuth.ghRead(cfg, extJoin(base, 'analysis.txt'));
         var ata = document.getElementById('analysisTextarea');
-        if (aRaw != null && ata) {
-          ata.value = String(aRaw);
+        if (ata) {
+          ata.value = (aRaw != null) ? String(aRaw) : '';
           try { localStorage.setItem('fe_analysis_text', ata.value); } catch (e4) {}
           if (window.MDEDIT && window.MDEDIT.renderAnalysisMarkdown) window.MDEDIT.renderAnalysisMarkdown(ata.value);
         }

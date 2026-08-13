@@ -16,7 +16,7 @@ import { getCurrentUser, userFolder, appendUploadLog } from './user.js';
 import { recordFileStatus } from './filestatus.js';
 import { GAL_CATEGORIES } from './data.js';
 import { shareWork, unshareWork, listMyWorks, readShareIndex, writeShareIndex, entryFromMeta, SHARE_INTERVAL } from './share.js';
-import { dbEnabled, dbInsert, DB_TABLES } from './dbstable.js';
+import { dbEnabled, dbInsert, dbRemove, DB_TABLES } from './dbstable.js';
 
 /* ---------- 我的项目 ---------- */
 let projList = [];          // 项目数组（含 folder 字段）
@@ -24,53 +24,33 @@ let shareBusy = false;      // 单个分享/取消进行中：禁用其余分享
 let batchBusy = false;      // 批量操作进行中：禁用批量栏按钮
 let myWorks = [];           // 我的公开作品（索引条目，含 folder/path/name）
 
-/* 打开函数绘制器的短期一次性票据：防止直接构造 ?u=&p= 链接越权读取他人私有项目。 */
-const OPEN_TICKET_KEY = 'fnplt_open_ticket_v1';
-const OPEN_TICKET_TTL = 15 * 60 * 1000;
+const OPEN_TICKET_TTL = 15 * 60 * 1000; // 一次性打开令牌有效期
 
-function issueOpenTicket(uid, folder) {
-  try {
-    const now = Date.now();
-    const key = String(uid || '') + '/' + String(folder || '');
-    let tickets = {};
-    try { tickets = JSON.parse(localStorage.getItem(OPEN_TICKET_KEY) || '{}') || {}; } catch (e) {}
-    for (const k of Object.keys(tickets)) {
-      if (!tickets[k] || !tickets[k].exp || tickets[k].exp <= now) delete tickets[k];
-    }
-    tickets[key] = {
-      u: String(uid || ''),
-      p: String(folder || ''),
-      nonce: Math.random().toString(36).slice(2) + Date.now().toString(36),
-      exp: now + OPEN_TICKET_TTL,
-    };
-    localStorage.setItem(OPEN_TICKET_KEY, JSON.stringify(tickets));
-  } catch (e) {}
-}
-
-/* 打开函数绘制器的跳转组装：点鸭 logs 表启用时签发一次性令牌，URL 只带 ?t=<token>（不嵌套 u/p）；
- * 未启用或签发失败时回退本地票据 + ?u=&p=。返回 Promise<{url}>。 */
+/* 打开函数绘制器的跳转组装：点鸭 logs 表启用时签发一次性令牌，URL 只带 ?t=<token>（不嵌套 u/p）。
+ * 未启用点鸭 logs 时无法签发令牌，拒绝生成链接并提示（禁止把用户数据 u/p 暴露到链接里）。
+ * 返回 Promise<{url}>，失败时 reject(Error)。 */
 function issueOpenToken(uid, folder) {
-  const fallback = () => {
-    issueOpenTicket(uid, folder);
-    return { url: 'plotter/index.html?u=' + encodeURIComponent(uid) + '&p=' + encodeURIComponent(folder) };
-  };
-  if (window.DbsApi && dbEnabled(DB_TABLES.LOGS)) {
-    const token = Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
-    const exp = Date.now() + OPEN_TICKET_TTL;
-    return dbInsert(
-      {
-        type: 'open_ticket',
-        user_id: String(uid || ''),
-        name: token,
-        status: 'active',
-        detail: JSON.stringify({ folder: String(folder || ''), exp }),
-      },
-      DB_TABLES.LOGS
-    )
-      .then(() => ({ url: 'plotter/index.html?t=' + encodeURIComponent(token) }))
-      .catch(() => fallback());
+  if (!(window.DbsApi && dbEnabled(DB_TABLES.LOGS))) {
+    return Promise.reject(new Error('未启用点鸭数据表，无法生成打开链接，请先在管理者设置中启用点鸭'));
   }
-  return Promise.resolve(fallback());
+  const token = Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
+  const exp = Date.now() + OPEN_TICKET_TTL;
+  // 签发前清理该用户全部旧 open_ticket（含已消费），保证同时只存在一个有效令牌、不残留过期记录。
+  return dbRemove("type='open_ticket' AND user_id='" + String(uid || '').replace(/'/g, "''") + "'", DB_TABLES.LOGS)
+    .catch(() => {})
+    .then(() =>
+      dbInsert(
+        {
+          type: 'open_ticket',
+          user_id: String(uid || ''),
+          name: token,
+          status: 'active',
+          detail: JSON.stringify({ folder: String(folder || ''), exp }),
+        },
+        DB_TABLES.LOGS
+      )
+    )
+    .then(() => ({ url: 'plotter/index.html?t=' + encodeURIComponent(token) }));
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -231,6 +211,8 @@ function onOpenProject(folder) {
   issueOpenToken(user.id, folder).then((r) => {
     window.open(r.url, '_blank', 'noopener');
     toast('已打开项目：' + p.name);
+  }).catch((e) => {
+    toast((e && e.message) || '无法生成打开链接');
   });
 }
 
@@ -566,6 +548,8 @@ function onOpenWork(folder) {
     }
     issueOpenToken(uid, proj).then((r) => {
       window.open(r.url, '_blank', 'noopener');
+    }).catch((e) => {
+      toast((e && e.message) || '无法生成打开链接');
     });
   } catch (err) {
     toast(ERR_MSG);
