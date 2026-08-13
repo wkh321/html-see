@@ -84,17 +84,75 @@ function ghHeaders(cfg) {
   return { Authorization: 'Bearer ' + cfg.token, 'Content-Type': 'application/json', 'User-Agent': 'fnplotter-mine' };
 }
 
-async function ghRequest(cfg, path, method, body) {
-  const url = apiUrl(cfg, path) + (method === 'GET' ? '?ref=' + encodeURIComponent(cfg.branch) : '');
-  const opts = { method, headers: ghHeaders(cfg) };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(url, opts);
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 200 || res.status === 201) return data;
-  if (res.status === 404) return null;
-  if (res.status === 403) throw new Error('GitHub API 限流或权限不足：' + (data.message || 'HTTP 403'));
-  if (res.status === 401) throw new Error('GitHub token 无效或无权限：' + (data.message || 'HTTP 401'));
-  throw new Error(data.message || ('GitHub HTTP ' + res.status));
+/* ---------- 统一节流：同路径 GET 短缓存合并去重 + 最小请求间隔 + 超时 + 403 退避 ---------- */
+const GH_MIN_INTERVAL = 300; // 相邻请求最小间隔（ms）
+const GH_CACHE_TTL = 500; // 同路径 GET 短缓存时长（ms），缓存期内合并复用
+const GH_TIMEOUT = 20000; // 单请求超时（ms）
+const GH_BACKOFF_MS = 30000; // 403 触发退避时长（ms）
+
+const ghGetCache = new Map(); // key(branch:path) -> { at, promise }
+let ghLastAt = 0; // 上次请求发起时间
+let ghBackoffUntil = 0; // 403 退避截止时间
+
+function ghSleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/* 发起请求前节流：退避期内直接拒绝；否则保证与上次请求间隔 >= GH_MIN_INTERVAL */
+async function ghThrottle() {
+  if (Date.now() < ghBackoffUntil) {
+    throw new Error('GitHub API 触发限流保护，请稍候再试（退避中）');
+  }
+  const wait = ghLastAt + GH_MIN_INTERVAL - Date.now();
+  if (wait > 0) await ghSleep(wait);
+  ghLastAt = Date.now();
+}
+
+/* 带超时的 fetch */
+async function ghFetch(url, opts) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), GH_TIMEOUT);
+  opts.signal = ctrl.signal;
+  try {
+    const res = await fetch(url, opts);
+    clearTimeout(timer);
+    return res;
+  } catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === 'AbortError') throw new Error('GitHub 请求超时（20 秒），请检查网络后重试');
+    throw new Error('GitHub 网络请求失败：' + (e && e.message ? e.message : '未知错误'));
+  }
+}
+
+async function ghRequest(cfg, path, method, body, noCache) {
+  const cacheKey = (cfg.branch || 'main') + ':' + path;
+  if (method === 'GET' && !noCache) {
+    const hit = ghGetCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < GH_CACHE_TTL) return hit.promise;
+  }
+  const promise = (async () => {
+    await ghThrottle();
+    const url = apiUrl(cfg, path) + (method === 'GET' ? '?ref=' + encodeURIComponent(cfg.branch) : '');
+    const opts = { method, headers: ghHeaders(cfg) };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await ghFetch(url, opts);
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 200 || res.status === 201) return data;
+    if (res.status === 404) return null;
+    if (res.status === 403) {
+      ghBackoffUntil = Date.now() + GH_BACKOFF_MS;
+      throw new Error('GitHub API 限流或权限不足，已暂停请求 ' + (GH_BACKOFF_MS / 1000) + ' 秒：' + (data.message || 'HTTP 403'));
+    }
+    if (res.status === 401) throw new Error('GitHub token 无效或无权限：' + (data.message || 'HTTP 401'));
+    throw new Error(data.message || ('GitHub HTTP ' + res.status));
+  })();
+  if (method === 'GET' && !noCache) {
+    ghGetCache.set(cacheKey, { at: Date.now(), promise });
+    promise.catch(() => {
+      if (ghGetCache.get(cacheKey) && ghGetCache.get(cacheKey).promise === promise) ghGetCache.delete(cacheKey);
+    });
+  }
+  return promise;
 }
 
 /* 读取文件文本（base64 解码）；目录返回数组 */
@@ -107,7 +165,7 @@ export async function ghRead(cfg, path) {
 }
 
 export async function ghWrite(cfg, path, content, message, isBase64) {
-  const existing = await ghRequest(cfg, path, 'GET');
+  const existing = await ghRequest(cfg, path, 'GET', null, true);
   const body = {
     message: message || ('Update ' + path),
     content: isBase64 ? content : stringToBase64(content),
@@ -118,10 +176,10 @@ export async function ghWrite(cfg, path, content, message, isBase64) {
 }
 
 export async function ghDelete(cfg, path, message) {
-  const existing = await ghRequest(cfg, path, 'GET');
+  const existing = await ghRequest(cfg, path, 'GET', null, true);
   if (!existing || !existing.sha) return true;
   const body = { message: message || ('Delete ' + path), branch: cfg.branch, sha: existing.sha };
-  const res = await fetch(apiUrl(cfg, path), { method: 'DELETE', headers: ghHeaders(cfg), body: JSON.stringify(body) });
+  const res = await ghFetch(apiUrl(cfg, path), { method: 'DELETE', headers: ghHeaders(cfg), body: JSON.stringify(body) });
   return res.status === 200;
 }
 
@@ -169,7 +227,8 @@ export async function listDirs(cfg, dir) {
  * 查询失败或无需鉴权时不阻塞：remaining 取 -1 表示未知，视为通过。 */
 export async function checkRateLimit(cfg, need) {
   try {
-    const res = await fetch('https://api.github.com/rate_limit', { headers: ghHeaders(cfg) });
+    await ghThrottle();
+    const res = await ghFetch('https://api.github.com/rate_limit', { headers: ghHeaders(cfg) });
     const d = await res.json().catch(() => ({}));
     const core = (d && d.resources && d.resources.core) || {};
     const remaining = typeof core.remaining === 'number' ? core.remaining : -1;

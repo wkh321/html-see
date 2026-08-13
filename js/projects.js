@@ -23,6 +23,29 @@ let shareBusy = false;      // 单个分享/取消进行中：禁用其余分享
 let batchBusy = false;      // 批量操作进行中：禁用批量栏按钮
 let myWorks = [];           // 我的公开作品（索引条目，含 folder/path/name）
 
+/* 打开函数绘制器的短期一次性票据：防止直接构造 ?u=&p= 链接越权读取他人私有项目。 */
+const OPEN_TICKET_KEY = 'fnplt_open_ticket_v1';
+const OPEN_TICKET_TTL = 15 * 60 * 1000;
+
+function issueOpenTicket(uid, folder) {
+  try {
+    const now = Date.now();
+    const key = String(uid || '') + '/' + String(folder || '');
+    let tickets = {};
+    try { tickets = JSON.parse(localStorage.getItem(OPEN_TICKET_KEY) || '{}') || {}; } catch (e) {}
+    for (const k of Object.keys(tickets)) {
+      if (!tickets[k] || !tickets[k].exp || tickets[k].exp <= now) delete tickets[k];
+    }
+    tickets[key] = {
+      u: String(uid || ''),
+      p: String(folder || ''),
+      nonce: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      exp: now + OPEN_TICKET_TTL,
+    };
+    localStorage.setItem(OPEN_TICKET_KEY, JSON.stringify(tickets));
+  } catch (e) {}
+}
+
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 /* 分享/取消进行中：禁用/恢复所有分享按钮（含批量渲染后的新按钮由 renderDeck 兜底） */
@@ -178,6 +201,7 @@ function onOpenProject(folder) {
   const p = projList.find((x) => x.folder === folder);
   if (!p) return;
   const user = getCurrentUser();
+  issueOpenTicket(user.id, folder);
   const url = 'plotter/index.html?u=' + encodeURIComponent(user.id) + '&p=' + encodeURIComponent(folder);
   window.open(url, '_blank', 'noopener');
   toast('已打开项目：' + p.name);
@@ -513,6 +537,7 @@ function onOpenWork(folder) {
       toast(ERR_MSG);
       return;
     }
+    issueOpenTicket(uid, proj);
     const url = 'plotter/index.html?u=' + encodeURIComponent(uid) + '&p=' + encodeURIComponent(proj);
     window.open(url, '_blank', 'noopener');
   } catch (err) {

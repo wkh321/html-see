@@ -77,6 +77,93 @@
   }
 
   // ==================== GitHub API 封装 ====================
+  var GH_MIN_INTERVAL = 300;
+  var GH_CACHE_TTL = 500;
+  var GH_TIMEOUT = 20000;
+  var GH_BACKOFF_MS = 30000;
+  var ghGetCache = {};
+  var ghLastAt = 0;
+  var ghBackoffUntil = 0;
+  function ghSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  async function ghThrottle() {
+    if (Date.now() < ghBackoffUntil) {
+      throw new Error('GitHub API 触发限流保护，请稍候再试（退避中）');
+    }
+    var wait = ghLastAt + GH_MIN_INTERVAL - Date.now();
+    if (wait > 0) await ghSleep(wait);
+    ghLastAt = Date.now();
+  }
+  function ghFetch(url, opts) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, GH_TIMEOUT);
+    opts.signal = ctrl.signal;
+    return fetch(url, opts)
+      .then(function (res) {
+        clearTimeout(timer);
+        return res;
+      })
+      .catch(function (e) {
+        clearTimeout(timer);
+        if (e && e.name === 'AbortError') throw new Error('GitHub 请求超时（20 秒），请检查网络后重试');
+        throw new Error('GitHub 网络请求失败：' + (e && e.message ? e.message : '未知错误'));
+      });
+  }
+  async function ghRequest(cfg, path, method, body, noCache) {
+    var cacheKey = (cfg.branch || 'main') + ':' + path;
+    if (method === 'GET' && !noCache) {
+      var hit = ghGetCache[cacheKey];
+      if (hit && Date.now() - hit.at < GH_CACHE_TTL) return hit.promise;
+    }
+    var promise = (async function () {
+      await ghThrottle();
+      var url = apiUrl(cfg, path) + (method === 'GET' ? '?ref=' + encodeURIComponent(cfg.branch) : '');
+      var opts = { method: method, headers: ghHeaders(cfg) };
+      if (body) opts.body = JSON.stringify(body);
+      var res = await ghFetch(url, opts);
+      var data = await res.json().catch(function () { return {}; });
+      if (res.status === 200 || res.status === 201) return data;
+      if (res.status === 404) return null;
+      if (res.status === 403) {
+        ghBackoffUntil = Date.now() + GH_BACKOFF_MS;
+        throw new Error('GitHub API 限流或权限不足，已暂停请求 ' + (GH_BACKOFF_MS / 1000) + ' 秒：' + (data.message || 'HTTP 403'));
+      }
+      if (res.status === 401) throw new Error('GitHub token 无效或无权限（请检查管理者配置）：' + (data.message || 'HTTP 401'));
+      throw new Error((data.message || ('GitHub HTTP ' + res.status)));
+    })();
+    if (method === 'GET' && !noCache) {
+      ghGetCache[cacheKey] = { at: Date.now(), promise: promise };
+      promise.catch(function () {
+        if (ghGetCache[cacheKey] && ghGetCache[cacheKey].promise === promise) delete ghGetCache[cacheKey];
+      });
+    }
+    return promise;
+  }
+  // 读取文件文本（base64 解码）；目录返回数组
+  async function ghRead(cfg, path) {
+    var d = await ghRequest(cfg, path, 'GET');
+    if (d == null) return null;
+    if (Array.isArray(d)) return d;
+    if (d.content) return base64ToString(d.content);
+    return null;
+  }
+  async function ghWrite(cfg, path, content, message, isBase64) {
+    var existing = await ghRequest(cfg, path, 'GET', null, true);
+    var body = {
+      message: message || ('Update ' + path),
+      content: isBase64 ? content : stringToBase64(content),
+      branch: cfg.branch
+    };
+    if (existing && existing.sha) body.sha = existing.sha;
+    var d = await ghRequest(cfg, path, 'PUT', body);
+    return d;
+  }
+  async function ghDelete(cfg, path, message) {
+    var existing = await ghRequest(cfg, path, 'GET', null, true);
+    if (!existing || !existing.sha) return true;
+    var body = { message: message || ('Delete ' + path), branch: cfg.branch, sha: existing.sha };
+    var res = await ghFetch(apiUrl(cfg, path), { method: 'DELETE', headers: ghHeaders(cfg), body: JSON.stringify(body) });
+    return res.status === 200;
+  }
   function getConfig() {
     // 优先自己的配置；没有则回退读取门户站点的配置（fnplt_gh_config_v2，同源共享 localStorage）
     try {
@@ -109,65 +196,6 @@
   }
   function ghHeaders(cfg) {
     return { 'Authorization': 'Bearer ' + cfg.token, 'Content-Type': 'application/json', 'User-Agent': 'fnplotter-auth' };
-  }
-  async function ghRequest(cfg, path, method, body) {
-    var url = apiUrl(cfg, path) + (method === 'GET' ? '?ref=' + encodeURIComponent(cfg.branch) : '');
-    var opts = { method: method, headers: ghHeaders(cfg) };
-    if (body) opts.body = JSON.stringify(body);
-    var ctrl = new AbortController();
-    var timer = setTimeout(function () { ctrl.abort(); }, 20000);
-    opts.signal = ctrl.signal;
-    var res;
-    try {
-      res = await fetch(url, opts);
-    } catch (e) {
-      clearTimeout(timer);
-      if (e && e.name === 'AbortError') throw new Error('GitHub 请求超时（20 秒），请检查网络后重试');
-      throw new Error('GitHub 网络请求失败：' + (e && e.message ? e.message : '未知错误'));
-    }
-    clearTimeout(timer);
-    var data = await res.json().catch(function () { return {}; });
-    if (res.status === 200 || res.status === 201) return data;
-    if (res.status === 404) return null;
-    if (res.status === 403) throw new Error('GitHub API 限流或权限不足：' + (data.message || 'HTTP 403'));
-    if (res.status === 401) throw new Error('GitHub token 无效或无权限（请检查管理者配置）：' + (data.message || 'HTTP 401'));
-    throw new Error((data.message || ('GitHub HTTP ' + res.status)));
-  }
-  // 读取文件文本（base64 解码）；目录返回数组
-  async function ghRead(cfg, path) {
-    var d = await ghRequest(cfg, path, 'GET');
-    if (d == null) return null;
-    if (Array.isArray(d)) return d;
-    if (d.content) return base64ToString(d.content);
-    return null;
-  }
-  async function ghWrite(cfg, path, content, message, isBase64) {
-    var existing = await ghRequest(cfg, path, 'GET');
-    var body = {
-      message: message || ('Update ' + path),
-      content: isBase64 ? content : stringToBase64(content),
-      branch: cfg.branch
-    };
-    if (existing && existing.sha) body.sha = existing.sha;
-    var d = await ghRequest(cfg, path, 'PUT', body);
-    return d;
-  }
-  async function ghDelete(cfg, path, message) {
-    var existing = await ghRequest(cfg, path, 'GET');
-    if (!existing || !existing.sha) return true;
-    var body = { message: message || ('Delete ' + path), branch: cfg.branch, sha: existing.sha };
-    var ctrl = new AbortController();
-    var timer = setTimeout(function () { ctrl.abort(); }, 20000);
-    var res;
-    try {
-      res = await fetch(apiUrl(cfg, path), { method: 'DELETE', headers: ghHeaders(cfg), body: JSON.stringify(body), signal: ctrl.signal });
-    } catch (e) {
-      clearTimeout(timer);
-      if (e && e.name === 'AbortError') throw new Error('GitHub 请求超时（20 秒），请检查网络后重试');
-      throw new Error('GitHub 网络请求失败：' + (e && e.message ? e.message : '未知错误'));
-    }
-    clearTimeout(timer);
-    return res.status === 200;
   }
   function rawUrl(cfg, path) {
     return 'https://raw.githubusercontent.com/' + cfg.owner + '/' + cfg.repo + '/' + cfg.branch + '/' + path;

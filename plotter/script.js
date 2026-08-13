@@ -708,12 +708,14 @@ function drawPointsTo(target){
   const _lpB=typeof linePointB!=='undefined'?linePointB:null;
   for(const it of items){
     if(it.type!=='point'||it.hidden)continue;
-    if(it.errorMsg)continue;
     const _rot=getItemRotation(it);
     if(_rot)beginItemRotation(_rot);
     try{
+      // 旋转状态下强制渲染：忽略 errorMsg 与画布裁剪，只要有有效坐标就绘制
+      if(it.errorMsg&&!_rot)continue;
       const ps=mathToScreen(it.x,it.y);
-      if(ps.sx<-50||ps.sx>canvasW+50||ps.sy<-50||ps.sy>canvasH+50)continue;
+      if(!isFinite(ps.sx)||!isFinite(ps.sy))continue;
+      if(!_rot&&(ps.sx<-50||ps.sx>canvasW+50||ps.sy<-50||ps.sy>canvasH+50))continue;
       target.fillStyle=it.color;target.strokeStyle=it.color;
 
       if(ptStyleSelect.value==='crosshair'){
@@ -3407,7 +3409,17 @@ function getProjectDataPayload() {
     hideYAxis: hideYAxisI.checked, showGrid: showGrid.checked,
     pointStyle: ptStyleSelect.value
   };
-  return { version: 3, settings, items, idSeq, folders, regionLayout: getRegionLayout() };
+  return { version: 3, settings, items, idSeq, folders: cleanFoldersPayload(), regionLayout: getRegionLayout() };
+}
+// 序列化时剔除旋转的纯运行时字段（动画起始角/中心缓存），保留有意义的平移补偿 _panX/_panY
+function cleanFoldersPayload(){
+  return folders.map(f=>{
+    if(!f.rotation)return f;
+    const r={...f.rotation};
+    delete r._initial;
+    delete r._lastCenter;
+    return {...f, rotation:r};
+  });
 }
 function currentProjectKey() {
   return JSON.stringify(getProjectDataPayload());
@@ -3415,6 +3427,7 @@ function currentProjectKey() {
 function isProjectDirty() { return currentProjectKey() !== lastSavedKey; }
 function markSaved() { lastSavedKey = currentProjectKey(); }
 let cloudProjectId = ''; // 当前项目唯一 ID（无则下次保存时自动生成）
+let cloudProjectName = ''; // 当前项目云端名称（已有 ID 时直接保存使用）
 lastSavedKey = currentProjectKey();
 
 // ---- 更多菜单 ----
@@ -3457,7 +3470,63 @@ function menuSaveCloud() {
   closeAppMenu();
   if (!window.UserAuth) return;
   if (!UserAuth.isLoggedIn()) { UserAuth.showToast('请先登录后再保存到云端'); UserAuth.requireLogin().then(function (ok) { if (ok) openSaveCloudModal(null); }); return; }
+  // 已存在云端项目（有唯一 ID）时直接保存，不再弹出命名窗口
+  if (cloudProjectId) { saveCloudDirect(); return; }
   openSaveCloudModal(null);
+}
+// 全屏上传遮罩（禁用整个网页并提示正在上传），带超时保护
+let cloudUploadTimer = null;
+function showCloudUploadOverlay(text) {
+  hideCloudUploadOverlay();
+  if (!document.getElementById('cloudUploadSpinStyle')) {
+    var st = document.createElement('style');
+    st.id = 'cloudUploadSpinStyle';
+    st.textContent = '@keyframes cloudUpSpin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+  }
+  var ov = document.createElement('div');
+  ov.id = 'cloudUploadOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:2000000;background:rgba(15,20,35,.6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;';
+  var sp = document.createElement('div');
+  sp.style.cssText = 'width:46px;height:46px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:cloudUpSpin .9s linear infinite;';
+  var tx = document.createElement('div');
+  tx.style.cssText = 'color:#fff;font-size:15px;letter-spacing:.5px;';
+  tx.textContent = text || '正在上传到云端...';
+  ov.appendChild(sp); ov.appendChild(tx);
+  document.body.appendChild(ov);
+  cloudUploadTimer = setTimeout(function () {
+    hideCloudUploadOverlay();
+    if (window.UserAuth && UserAuth.showToast) UserAuth.showToast('上传超时，请检查网络后重试');
+  }, 120000);
+}
+function hideCloudUploadOverlay() {
+  if (cloudUploadTimer) { clearTimeout(cloudUploadTimer); cloudUploadTimer = null; }
+  var el = document.getElementById('cloudUploadOverlay');
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+// 已有云端 ID 时的直接保存（带全屏遮罩 + 超时恢复）
+function saveCloudDirect() {
+  showCloudUploadOverlay('正在上传到云端...');
+  (async function () {
+    try {
+      const payload = getProjectDataPayload();
+      payload._id = cloudProjectId;
+      const ata = document.getElementById('analysisTextarea');
+      const name = cloudProjectName || '未命名';
+      const data = await UserAuth.writeCloudProject(name, payload, {
+        question: questionContent,
+        analysis: ata ? ata.value : ''
+      });
+      cloudProjectId = data._id;
+      cloudProjectName = data.name;
+      markSaved();
+      hideCloudUploadOverlay();
+      if (UserAuth.showToast) UserAuth.showToast('已保存到云端：' + data.name);
+    } catch (e) {
+      hideCloudUploadOverlay();
+      if (UserAuth.showToast) UserAuth.showToast('保存失败：' + (e.message || ''));
+    }
+  })();
 }
 function menuOpenCloud() {
   closeAppMenu();
@@ -3470,6 +3539,7 @@ function menuNewProject() {
   const doAction = function () {
     resetProjectData();
     cloudProjectId = '';
+    cloudProjectName = '';
     if (window.UserAuth && UserAuth.showToast) UserAuth.showToast('创建新项目成功');
   };
   const afterLogin = function () { saveBeforeAction(doAction, '直接创建新项目将丢失这些数据'); };
@@ -3525,6 +3595,8 @@ function doSaveCloud() {
     return;
   }
   btn.disabled = true; btn.textContent = '保存中...';
+  closeSaveCloudModal();
+  showCloudUploadOverlay('正在上传到云端...');
   (async function () {
     try {
       const payload = getProjectDataPayload();
@@ -3535,15 +3607,18 @@ function doSaveCloud() {
         analysis: ata ? ata.value : ''
       });
       cloudProjectId = data._id;
+      cloudProjectName = data.name;
       markSaved();
-      closeSaveCloudModal();
+      hideCloudUploadOverlay();
       if (UserAuth.showToast) UserAuth.showToast('已保存到云端：' + data.name);
       if (saveCloudExtra && saveCloudExtra.onSaved) saveCloudExtra.onSaved(data);
     } catch (e) {
+      hideCloudUploadOverlay();
+      if (UserAuth.showToast) UserAuth.showToast('保存失败：' + (e.message || ''));
       if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#dc2626'; msgEl.textContent = e.message || '保存失败'; }
       if (nameEl && /同名/.test(e.message || '')) nameEl.classList.add('error');
-    } finally {
       btn.disabled = false; btn.textContent = '保存';
+      document.getElementById('saveCloudOverlay').classList.add('visible');
     }
   })();
 }
@@ -3604,6 +3679,7 @@ function openCloudById(id) {
       const r = await UserAuth.readCloudProject(id);
       applyProjectData(r.project);
       cloudProjectId = r.id;
+      cloudProjectName = r.name;
       markSaved();
       setQuestionContent(r.question || null);
       const ata = document.getElementById('analysisTextarea');
@@ -10045,6 +10121,21 @@ function ensureFolderRotation(f){
     f.rotation={enabled:true,angle:0,mode:'loop',dir:'cw',centerMode:'folder',centerPointId:null,centerX:0,centerY:0,centerExprX:'',centerExprY:'',_initial:0};
   }
 }
+// 旋转中心切换补偿：当旋转中心配置改变时，调整平移补偿 _panX/_panY，
+// 使图形视觉位置保持不变（不再因中心切换而整体移动），后续旋转仍绕新中心。
+// oldC 为修改中心配置前捕获的原中心（数学坐标）；若传入 null/undefined 则用当前中心兜底。
+function rebaseRotationCenter(f, oldC){
+  if(!f||!f.rotation)return;
+  const r=f.rotation;
+  const newC=computeRotationCenter(f);
+  if(!newC)return;
+  const o=oldC||r._lastCenter||newC;
+  if(o.x===newC.x&&o.y===newC.y){r._lastCenter={x:newC.x,y:newC.y};return;}
+  const dx=o.x-newC.x,dy=o.y-newC.y;
+  r._panX=(r._panX||0)+dx;
+  r._panY=(r._panY||0)+dy;
+  r._lastCenter={x:newC.x,y:newC.y};
+}
 
 function computeRotationCenter(f){
   const r=f.rotation;
@@ -10077,7 +10168,10 @@ function getItemRotation(it){
   if(!c)return null;
   const p=ppu();
   const rad=r.angle*Math.PI/180;
-  return {sx:view.ox+c.x*p, sy:view.oy-c.y*p, rad};
+  // 中心切换补偿：实际旋转中心 = 配置中心 + 平移补偿，切换时图形视觉位置不跳变
+  const px=c.x+(r._panX||0);
+  const py=c.y+(r._panY||0);
+  return {sx:view.ox+px*p, sy:view.oy-py*p, rad};
 }
 
 function beginItemRotation(rot){
@@ -10180,7 +10274,9 @@ function bindRotationPanel(panel){
     sel.addEventListener('change',()=>{
       const f=folders.find(x=>x.id===sel.dataset.rotcenter);
       if(!f)return;
+      const oldC=computeRotationCenter(f);
       f.rotation.centerMode=sel.value;
+      rebaseRotationCenter(f, oldC);
       renderRotationPanel();
       fullRender();
     });
@@ -10199,9 +10295,11 @@ function bindRotationPanel(panel){
     sel.addEventListener('change',()=>{
       const f=folders.find(x=>x.id===sel.dataset.rotcpt);
       if(!f)return;
+      const oldC=computeRotationCenter(f);
       f.rotation.centerPointId=sel.value||null;
       const inp=panel.querySelector('[data-rotcptid="'+f.id+'"]');
       if(inp)inp.value=sel.value||'';
+      rebaseRotationCenter(f, oldC);
       fullRender();
     });
   });
@@ -10213,9 +10311,11 @@ function bindRotationPanel(panel){
       if(!v){f.rotation.centerPointId=null;return;}
       const pt=items.find(i=>i.id===v&&i.type==='point');
       if(!pt){alert('找不到 ID 为 "'+v+'" 的坐标点');inp.value=f.rotation.centerPointId||'';return;}
+      const oldC=computeRotationCenter(f);
       f.rotation.centerPointId=pt.id;
       const sel=panel.querySelector('[data-rotcpt="'+f.id+'"]');
       if(sel&&sel.querySelector('option[value="'+pt.id+'"]'))sel.value=pt.id;
+      rebaseRotationCenter(f, oldC);
       fullRender();
     });
   });
@@ -10223,7 +10323,9 @@ function bindRotationPanel(panel){
     inp.addEventListener('input',()=>{
       const f=folders.find(x=>x.id===inp.dataset.rotcx);
       if(!f)return;
+      const oldC=computeRotationCenter(f);
       f.rotation.centerX=Number(inp.value)||0;
+      rebaseRotationCenter(f, oldC);
       fullRender();
     });
   });
@@ -10231,7 +10333,9 @@ function bindRotationPanel(panel){
     inp.addEventListener('input',()=>{
       const f=folders.find(x=>x.id===inp.dataset.rotcy);
       if(!f)return;
+      const oldC=computeRotationCenter(f);
       f.rotation.centerY=Number(inp.value)||0;
+      rebaseRotationCenter(f, oldC);
       fullRender();
     });
   });
@@ -10239,7 +10343,9 @@ function bindRotationPanel(panel){
     inp.addEventListener('input',()=>{
       const f=folders.find(x=>x.id===inp.dataset.rotcex);
       if(!f)return;
+      const oldC=computeRotationCenter(f);
       f.rotation.centerExprX=inp.value;
+      rebaseRotationCenter(f, oldC);
       fullRender();
     });
   });
@@ -10247,7 +10353,9 @@ function bindRotationPanel(panel){
     inp.addEventListener('input',()=>{
       const f=folders.find(x=>x.id===inp.dataset.rotcey);
       if(!f)return;
+      const oldC=computeRotationCenter(f);
       f.rotation.centerExprY=inp.value;
+      rebaseRotationCenter(f, oldC);
       fullRender();
     });
   });
@@ -10811,9 +10919,31 @@ initNewFeatures();
 (function () {
   var EXT_CFG_KEY = 'fnplt_gh_config_v2';
   var extProject = null; // { cfg, userId, folder }
+  var OPEN_TICKET_KEY = 'fnplt_open_ticket_v1'; // 与门户同源共享的短期一次性票据
 
   function extReadCfg(key) {
     try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+  }
+  /* 校验打开票据：必须与 URL 的 u/p 完全匹配且未过期。
+   * 票据由门户打开项目时写入（存 localStorage，不随 URL 传递），
+   * 直接构造 / 复制 ?u=&p= 链接拿不到票据，将无法通过校验。
+   * 校验通过后票据保留至过期，避免打开项目后刷新页面时校验失败；
+   * 过期后自动清理，重新打开需再次从门户发起。 */
+  function extVerifyTicket(userId, folder) {
+    try {
+      var raw = localStorage.getItem(OPEN_TICKET_KEY);
+      if (!raw) return false;
+      var map = JSON.parse(raw) || {};
+      var t = map[String(userId || '') + '/' + String(folder || '')];
+      if (!t || t.u !== String(userId || '') || t.p !== String(folder || '')) return false;
+      if (!t.exp || Date.now() > t.exp) {
+        try { delete map[String(userId || '') + '/' + String(folder || '')]; localStorage.setItem(OPEN_TICKET_KEY, JSON.stringify(map)); } catch (e2) {}
+        return false;
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
   function extGetConfig() {
     var cfg = extReadCfg('fnplt_gh_config') || extReadCfg(EXT_CFG_KEY);
@@ -10863,6 +10993,7 @@ initNewFeatures();
   function extResetToBlank() {
     extProject = null;
     cloudProjectId = '';
+    cloudProjectName = '';
     try { resetProjectData(); } catch (e) {}
     extToast('已恢复为空白新项目');
   }
@@ -10871,7 +11002,12 @@ initNewFeatures();
     if (!sp) return;
     var userId = sp.get('u');
     var folder = sp.get('p');
-    if (!userId || !folder) return;
+    if (!userId || !folder) { extResetToBlank(); return; }
+    if (!extVerifyTicket(userId, folder)) {
+      extResetToBlank();
+      extToast('链接无效或已过期，请从「我的」页面重新打开该项目');
+      return;
+    }
     var cfg = extGetConfig();
     if (!cfg) { extToast('未找到仓库配置，请先在门户管理者设置中配置 GitHub'); return; }
     var base = extJoin(cfg.usersRoot, userId, 'projects', folder);
@@ -10884,6 +11020,7 @@ initNewFeatures();
       if (!data || typeof data !== 'object') throw new Error('项目数据格式无效');
       extProject = { cfg: cfg, userId: userId, folder: folder };
       cloudProjectId = folder;
+      cloudProjectName = data.name || folder;
       try {
         applyProjectData(data);
       } catch (e) {
@@ -10918,6 +11055,7 @@ initNewFeatures();
     if (!extProject) return;
     var cfg = extProject.cfg;
     var base = extJoin(cfg.usersRoot, extProject.userId, 'projects', extProject.folder);
+    showCloudUploadOverlay('正在上传到云端...');
     try {
       var payload = getProjectDataPayload();
       payload._id = extProject.folder;
@@ -10938,9 +11076,12 @@ initNewFeatures();
       meta.updatedAt = Date.now();
       await UserAuth.ghWrite(cfg, extJoin(base, 'info.json'), JSON.stringify(meta, null, 2), 'Update meta of ' + extProject.folder);
       cloudProjectId = extProject.folder;
+      cloudProjectName = payload.name;
       markSaved();
+      hideCloudUploadOverlay();
       extToast('已保存到原项目：' + payload.name);
     } catch (e) {
+      hideCloudUploadOverlay();
       extToast('保存失败：' + (e.message || ''));
     }
   }
