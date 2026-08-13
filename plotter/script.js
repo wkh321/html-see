@@ -876,9 +876,17 @@ function resolveAllPoints(){
     if(it.circleMode==='circle'){
       const c=items.find(i=>i.id===it.onCircleId&&i.type==='circle'&&!i.errorMsg);
       if(c){
-        const theta=Number(it.theta)||0;
-        it.x=c.cx+c.radius*Math.cos(theta);
-        it.y=c.cy+c.radius*Math.sin(theta);
+        let theta=Number(it.theta)||0;
+        // θ 支持含参代数式（单位：度）：输入 2*a+1 等，随参数变化实时代入渲染
+        if(it.thetaExpr!=null&&String(it.thetaExpr).trim()!==''){
+          const re=evalParamExpr(it.thetaExpr,paramVals);
+          if(re.error){xErr='角度表达式：'+re.error;yErr=xErr;}
+          else theta=re.value*Math.PI/180;
+        }
+        if(!xErr){
+          it.x=c.cx+c.radius*Math.cos(theta);
+          it.y=c.cy+c.radius*Math.sin(theta);
+        }
       }else{
         xErr='绑定的圆不存在或无效';
         yErr=xErr;
@@ -958,7 +966,7 @@ function updateSegmentLineItems() {
   }
 }
 
-function renderFull(){resolveAllPoints();drawGridTo(ctx);drawCurvesTo(ctx);drawSegmentsTo(ctx);drawCirclesTo(ctx);drawPointsTo(ctx);}
+function renderFull(){resolveAllPoints();drawGridTo(ctx);drawCurvesTo(ctx);drawSegmentsTo(ctx);drawCirclesTo(ctx);drawPointsTo(ctx);drawRotationCenters(ctx);}
 
 function segmentIntersectsRect(x1,y1,x2,y2,left,top,right,bottom){
   let t0=0,t1=1;
@@ -1078,7 +1086,7 @@ function drawSegmentsTo(target) {
   }
 }
 
-function renderFullOnly(){resolveAllPoints();drawGridTo(ctx);drawCurvesTo(ctx);drawSegmentsTo(ctx);drawCirclesTo(ctx);drawPointsTo(ctx);}
+function renderFullOnly(){resolveAllPoints();drawGridTo(ctx);drawCurvesTo(ctx);drawSegmentsTo(ctx);drawCirclesTo(ctx);drawPointsTo(ctx);drawRotationCenters(ctx);}
 
 // ==================== 动画 ====================
 function easeInOutCubic(t){return t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;}
@@ -2352,11 +2360,12 @@ function createPointExpandedHTML(it){
     '<span class="pt-hint">'+((yMode==='func'?'y=f(x)':yMode==='param'?'参数表达式':yMode==='line'?'y=kx+b':''))+'</span>'+
   '</div>'+
   '<div class="pt-row pt-row-err" data-ptyerr style="display:none;"></div>';
+  const thetaVal=(it.thetaExpr!=null&&String(it.thetaExpr).trim()!=='')?String(it.thetaExpr):safeToFixed((Number(it.theta)||0)*180/Math.PI,dp);
   const rowCircle='<div class="pt-row">'+
     '<span class="pt-axis">圆</span>'+
     '<select data-ptcircle style="max-width:110px;" title="绑定圆唯一ID">'+circleOptions(it.onCircleId)+'</select>'+
-    '<input type="number" data-pttheta step="0.01" value="'+safeToFixed((Number(it.theta)||0)*180/Math.PI,dp)+'" style="width:76px;" title="角度(度)，0°=圆最右端，逆时针">'+
-    '<span class="pt-hint">θ(度)</span>'+
+    '<input type="text" data-pttheta placeholder="角度(°)或含参表达式" value="'+escExpr(thetaVal)+'" style="width:112px;" title="角度(度)，0°=圆最右端，逆时针；可填含参代数式如 2*a+1，随参数变化实时重算">'+
+    '<span class="pt-hint">θ(°)或代数式</span>'+
   '</div>'+
   '<div class="pt-row">'+
     '<span class="pt-axis">坐标</span>'+
@@ -2508,6 +2517,7 @@ function setupPointExpandedEvents(card,it){
   const circErr=card.querySelector('[data-ptcircerr]');
 
   function syncThetaFromXY(){
+    if(it.thetaExpr!=null&&String(it.thetaExpr).trim()!=='')return;
     const c=items.find(i=>i.type==='circle'&&i.id===it.onCircleId&&!i.errorMsg);
     if(c&&isFinite(it.x)&&isFinite(it.y))it.theta=Math.atan2(it.y-c.cy,it.x-c.cx);
   }
@@ -2519,6 +2529,7 @@ function setupPointExpandedEvents(card,it){
     if(xyVal)xyVal.textContent='('+formatNumber(it.x)+', '+formatNumber(it.y)+')';
     if(errX){errX.textContent=it.xErr||'';errX.style.display=it.xErr?'block':'none';}
     if(errY){errY.textContent=it.yErr||'';errY.style.display=it.yErr?'block':'none';}
+    if(circErr){circErr.textContent=(it.circleMode==='circle'?(it.xErr||''):'');circErr.style.display=(it.circleMode==='circle'&&it.xErr)?'block':'none';}
     if(it.errorMsg){
       if(!silent&&!it._errNotified){
         it._errNotified=true;
@@ -2557,9 +2568,23 @@ function setupPointExpandedEvents(card,it){
     apply();
   });
   if(thetaInp)thetaInp.addEventListener('input',()=>{
-    it.theta=(Number(thetaInp.value)||0)*Math.PI/180;
+    const v=thetaInp.value.trim();
+    if(v===''){
+      it.thetaExpr='';
+      it.theta=0;
+    }else if(/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(v)){
+      // 纯数字：按角度(度)直接定位
+      it.thetaExpr='';
+      it.theta=Number(v)*Math.PI/180;
+    }else{
+      // 含参代数式：存表达式，立即尝试求值；缺参数时保留旧 θ 并在 apply 中显示错误
+      it.thetaExpr=v;
+      const re=evalParamExpr(v,getParamValues());
+      if(!re.error)it.theta=re.value*Math.PI/180;
+    }
     apply(true);
   });
+  if(thetaInp)thetaInp.addEventListener('blur',()=>{if(it.xErr){it._errNotified=false;apply(false);}});
   if(modeX)modeX.addEventListener('change',()=>{it.xMode=modeX.value;refreshCard();});
   if(modeY)modeY.addEventListener('change',()=>{it.yMode=modeY.value;refreshCard();});
   if(fixedX)fixedX.addEventListener('input',()=>{it.xFixed=Number(fixedX.value)||0;apply(true);});
@@ -10527,17 +10552,48 @@ function getItemRotation(it){
   return {sx:cs.sx, sy:cs.sy, ax:ws.sx, ay:ws.sy, rad};
 }
 
+// 旋转中心可视化标记：绘制实时旋转中心，便于观察图形绕哪个点旋转。
+function drawRotationCenters(target){
+  for(const f of folders){
+    if(!f.rotation||!f.rotation.enabled)continue;
+    const anim=folderRotAnims.has(f.id);
+    if(!f.rotation.angle&&!anim)continue;
+    const c=computeRotationCenter(f);
+    if(!c)continue;
+    const s=mathToScreen(c.x,c.y);
+    const r=Math.max(7,Math.min(15,30/ppu()));
+    target.save();
+    target.strokeStyle='rgba(245,158,11,.95)';
+    target.fillStyle='rgba(245,158,11,.18)';
+    target.lineWidth=1.5;
+    target.beginPath();
+    target.arc(s.sx,s.sy,r,0,Math.PI*2);
+    target.stroke();
+    target.fill();
+    target.beginPath();
+    target.moveTo(s.sx-r-4,s.sy);target.lineTo(s.sx+r+4,s.sy);
+    target.moveTo(s.sx,s.sy-r-4);target.lineTo(s.sx,s.sy+r+4);
+    target.stroke();
+    target.restore();
+  }
+}
+
 function beginItemRotation(rot){
   ctx.save();
+  // 屏幕空间等距变换：M_screen = S(C) + R(-θ)·(S(P)-S(W))。
+  // S(·) 为当前视口屏幕映射（含 pan）；差值里 view 平移相互抵消，
+  // 因此平移/缩放视口只让图像整体移动，不会因旋转把 pan 偏移混入。
+  // 必须保持 view.ox/oy 不变（曾错误清零导致拖动画布时图像漂移）。
   ctx.translate(rot.sx,rot.sy);
-  ctx.rotate(rot.rad);
+  ctx.rotate(-rot.rad);
   ctx.translate(-rot.ax,-rot.ay);
-  rot._ox=view.ox;rot._oy=view.oy;
-  view.ox=0;view.oy=0;
 }
 
 function endItemRotation(rot){
-  view.ox=rot._ox;view.oy=rot._oy;
+  ctx.restore();
+}
+
+function endItemRotation(rot){
   ctx.restore();
 }
 
@@ -11367,12 +11423,19 @@ initNewFeatures();
     }
     // 首次打开：向点鸭校验令牌并一次性消费；成功后缓存到 sessionStorage（刷新保留、关闭页面失效）
     if (window.PlotterTicket && PlotterTicket.verify) {
+      extShowLoading();
       PlotterTicket.verify(token).then(function (res) {
+        if (res && res.timeout) {
+          extShowInvalidTicket();
+          extToast('令牌校验超时，请检查点鸭数据表配置或稍后重试');
+          return;
+        }
         if (res && res.u && res.p) {
           extSessSet(res.u, res.p, res.exp, token);
           extOpen(res.u, res.p);
         } else {
           extShowInvalidTicket();
+          extToast('打开链接无效或已过期，请从「我的」页面重新打开');
         }
       });
       return;
@@ -11380,13 +11443,12 @@ initNewFeatures();
     extShowInvalidTicket();
   }
   // 令牌失效/过期/含用户数据参数：全屏锁屏禁止操作，引导回到「我的」页面重新打开。
-  // 从门户我的页面打开（同源 referrer）时新标签页打开我的页面，其余情况当前页跳转。
+  // 点击「回到我的页面」在当前页跳转（避免堆积太多标签页）。
   function extShowInvalidTicket() {
     extHideLoading();
     extSessClear();
     try { resetProjectData(); } catch (e) {}
     if (document.getElementById('extInvalidOv')) return;
-    var fromPortal = !!(document.referrer && document.referrer.indexOf(location.origin) === 0);
     var ov = document.createElement('div');
     ov.id = 'extInvalidOv';
     ov.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(15,23,42,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;font-family:inherit;text-align:center;';
@@ -11397,8 +11459,7 @@ initNewFeatures();
       '<button id="extInvalidBack" style="margin-top:10px;padding:10px 28px;border:none;border-radius:8px;background:#6366f1;color:#fff;font-size:14px;cursor:pointer;">回到我的页面</button>';
     document.body.appendChild(ov);
     document.getElementById('extInvalidBack').addEventListener('click', function () {
-      var url = '../index.html?page=myworks';
-      if (fromPortal) { window.open(url, '_blank'); } else { window.location.href = url; }
+      window.location.href = '../index.html?page=myworks';
     });
   }
   async function extOpen(userId, folder) {

@@ -18,6 +18,18 @@
 
   var CFG_KEY = 'fnplt_gh_config_v2';
   var TOKEN_TYPE = 'open_ticket';
+  var VERIFY_TIMEOUT = 10000;
+
+  function withTimeout(promise, ms) {
+    // 防止 DbsApi 依赖（jquery/pgdbs/配置类）加载卡死导致页面"无反应"：
+    // 超时后按 { timeout:true } 处理，让页面明确提示而不是无限等待。
+    return Promise.race([
+      promise,
+      new Promise(function (resolve) {
+        setTimeout(function () { resolve({ timeout: true }); }, ms);
+      })
+    ]);
+  }
 
   function readCfg() {
     try {
@@ -62,9 +74,14 @@
     return "type='" + escVal(TOKEN_TYPE) + "' AND name='" + escVal(token) + "'";
   }
 
-  /* 校验并一次性消费令牌。返回 Promise<{u,p,exp}|null>；无效 / 已消费 / 校验失败均返回 null。 */
+  /* 校验并一次性消费令牌。返回 Promise<{u,p,exp}|null|{timeout:true}>；
+   * 无效 / 已消费 / 校验失败返回 null，校验流程超时返回 {timeout:true}。 */
   function verify(token) {
     if (!token) return Promise.resolve(null);
+    return withTimeout(verifyInner(token), VERIFY_TIMEOUT);
+  }
+
+  function verifyInner(token) {
     return getLogsDb()
       .then(function (db) {
         return db.query({ fields: '', sort: '', filter: rowFilter(token), page: 1, limit: 10 });
