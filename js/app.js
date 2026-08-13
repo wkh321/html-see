@@ -2961,17 +2961,75 @@ function ghHeaders(cfg) {
   return { Authorization: 'Bearer ' + cfg.token, 'Content-Type': 'application/json', 'User-Agent': 'fnplotter-mine' };
 }
 
-async function ghRequest(cfg, path, method, body) {
-  const url = apiUrl(cfg, path) + (method === 'GET' ? '?ref=' + encodeURIComponent(cfg.branch) : '');
-  const opts = { method, headers: ghHeaders(cfg) };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(url, opts);
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 200 || res.status === 201) return data;
-  if (res.status === 404) return null;
-  if (res.status === 403) throw new Error('GitHub API 限流或权限不足：' + (data.message || 'HTTP 403'));
-  if (res.status === 401) throw new Error('GitHub token 无效或无权限：' + (data.message || 'HTTP 401'));
-  throw new Error(data.message || ('GitHub HTTP ' + res.status));
+/* ---------- 统一节流：同路径 GET 短缓存合并去重 + 最小请求间隔 + 超时 + 403 退避 ---------- */
+const GH_MIN_INTERVAL = 300; // 相邻请求最小间隔（ms）
+const GH_CACHE_TTL = 500; // 同路径 GET 短缓存时长（ms），缓存期内合并复用
+const GH_TIMEOUT = 20000; // 单请求超时（ms）
+const GH_BACKOFF_MS = 30000; // 403 触发退避时长（ms）
+
+const ghGetCache = new Map(); // key(branch:path) -> { at, promise }
+let ghLastAt = 0; // 上次请求发起时间
+let ghBackoffUntil = 0; // 403 退避截止时间
+
+function ghSleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/* 发起请求前节流：退避期内直接拒绝；否则保证与上次请求间隔 >= GH_MIN_INTERVAL */
+async function ghThrottle() {
+  if (Date.now() < ghBackoffUntil) {
+    throw new Error('GitHub API 触发限流保护，请稍候再试（退避中）');
+  }
+  const wait = ghLastAt + GH_MIN_INTERVAL - Date.now();
+  if (wait > 0) await ghSleep(wait);
+  ghLastAt = Date.now();
+}
+
+/* 带超时的 fetch */
+async function ghFetch(url, opts) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), GH_TIMEOUT);
+  opts.signal = ctrl.signal;
+  try {
+    const res = await fetch(url, opts);
+    clearTimeout(timer);
+    return res;
+  } catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === 'AbortError') throw new Error('GitHub 请求超时（20 秒），请检查网络后重试');
+    throw new Error('GitHub 网络请求失败：' + (e && e.message ? e.message : '未知错误'));
+  }
+}
+
+async function ghRequest(cfg, path, method, body, noCache) {
+  const cacheKey = (cfg.branch || 'main') + ':' + path;
+  if (method === 'GET' && !noCache) {
+    const hit = ghGetCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < GH_CACHE_TTL) return hit.promise;
+  }
+  const promise = (async () => {
+    await ghThrottle();
+    const url = apiUrl(cfg, path) + (method === 'GET' ? '?ref=' + encodeURIComponent(cfg.branch) : '');
+    const opts = { method, headers: ghHeaders(cfg) };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await ghFetch(url, opts);
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 200 || res.status === 201) return data;
+    if (res.status === 404) return null;
+    if (res.status === 403) {
+      ghBackoffUntil = Date.now() + GH_BACKOFF_MS;
+      throw new Error('GitHub API 限流或权限不足，已暂停请求 ' + (GH_BACKOFF_MS / 1000) + ' 秒：' + (data.message || 'HTTP 403'));
+    }
+    if (res.status === 401) throw new Error('GitHub token 无效或无权限：' + (data.message || 'HTTP 401'));
+    throw new Error(data.message || ('GitHub HTTP ' + res.status));
+  })();
+  if (method === 'GET' && !noCache) {
+    ghGetCache.set(cacheKey, { at: Date.now(), promise });
+    promise.catch(() => {
+      if (ghGetCache.get(cacheKey) && ghGetCache.get(cacheKey).promise === promise) ghGetCache.delete(cacheKey);
+    });
+  }
+  return promise;
 }
 
 /* 读取文件文本（base64 解码）；目录返回数组 */
@@ -2984,7 +3042,7 @@ async function ghRead(cfg, path) {
 }
 
 async function ghWrite(cfg, path, content, message, isBase64) {
-  const existing = await ghRequest(cfg, path, 'GET');
+  const existing = await ghRequest(cfg, path, 'GET', null, true);
   const body = {
     message: message || ('Update ' + path),
     content: isBase64 ? content : stringToBase64(content),
@@ -2995,10 +3053,10 @@ async function ghWrite(cfg, path, content, message, isBase64) {
 }
 
 async function ghDelete(cfg, path, message) {
-  const existing = await ghRequest(cfg, path, 'GET');
+  const existing = await ghRequest(cfg, path, 'GET', null, true);
   if (!existing || !existing.sha) return true;
   const body = { message: message || ('Delete ' + path), branch: cfg.branch, sha: existing.sha };
-  const res = await fetch(apiUrl(cfg, path), { method: 'DELETE', headers: ghHeaders(cfg), body: JSON.stringify(body) });
+  const res = await ghFetch(apiUrl(cfg, path), { method: 'DELETE', headers: ghHeaders(cfg), body: JSON.stringify(body) });
   return res.status === 200;
 }
 
@@ -3046,7 +3104,8 @@ async function listDirs(cfg, dir) {
  * 查询失败或无需鉴权时不阻塞：remaining 取 -1 表示未知，视为通过。 */
 async function checkRateLimit(cfg, need) {
   try {
-    const res = await fetch('https://api.github.com/rate_limit', { headers: ghHeaders(cfg) });
+    await ghThrottle();
+    const res = await ghFetch('https://api.github.com/rate_limit', { headers: ghHeaders(cfg) });
     const d = await res.json().catch(() => ({}));
     const core = (d && d.resources && d.resources.core) || {};
     const remaining = typeof core.remaining === 'number' ? core.remaining : -1;
@@ -4298,6 +4357,58 @@ let myWorks = [];           // 我的公开作品（索引条目，含 folder/pa
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+/* 打开函数绘制器的短期一次性票据：防止直接构造 ?u=&p= 链接越权读取他人私有项目。
+ * 门户打开项目前生成（含 nonce + u/p + 过期时间），存同源 localStorage；
+ * plotter 打开时校验 u/p 匹配且未过期后放行，过期自动清理。
+ * 票据不随 URL 传递，因此直接复制/构造 ?u=&p= 链接无法通过校验。 */
+const OPEN_TICKET_KEY = 'fnplt_open_ticket_v1';
+const OPEN_TICKET_TTL = 15 * 60 * 1000;
+
+function issueOpenTicket(uid, folder) {
+  try {
+    const now = Date.now();
+    const key = String(uid || '') + '/' + String(folder || '');
+    let tickets = {};
+    try { tickets = JSON.parse(localStorage.getItem(OPEN_TICKET_KEY) || '{}') || {}; } catch (e) {}
+    for (const k of Object.keys(tickets)) {
+      if (!tickets[k] || !tickets[k].exp || tickets[k].exp <= now) delete tickets[k];
+    }
+    tickets[key] = {
+      u: String(uid || ''),
+      p: String(folder || ''),
+      nonce: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      exp: now + OPEN_TICKET_TTL,
+    };
+    localStorage.setItem(OPEN_TICKET_KEY, JSON.stringify(tickets));
+  } catch (e) {}
+}
+
+/* 打开函数绘制器的跳转组装：点鸭 logs 表启用时签发一次性令牌，URL 只带 ?t=<token>（不嵌套 u/p）；
+ * 未启用或签发失败时回退本地票据 + ?u=&p=。返回 Promise<{url}>。 */
+function issueOpenToken(uid, folder) {
+  const fallback = () => {
+    issueOpenTicket(uid, folder);
+    return { url: 'plotter/index.html?u=' + encodeURIComponent(uid) + '&p=' + encodeURIComponent(folder) };
+  };
+  if (window.DbsApi && dbEnabled(DB_TABLES.LOGS)) {
+    const token = Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
+    const exp = Date.now() + OPEN_TICKET_TTL;
+    return dbInsert(
+      {
+        type: 'open_ticket',
+        user_id: String(uid || ''),
+        name: token,
+        status: 'active',
+        detail: JSON.stringify({ folder: String(folder || ''), exp }),
+      },
+      DB_TABLES.LOGS
+    )
+      .then(() => ({ url: 'plotter/index.html?t=' + encodeURIComponent(token) }))
+      .catch(() => fallback());
+  }
+  return Promise.resolve(fallback());
+}
+
 /* 分享/取消进行中：禁用/恢复所有分享按钮（含批量渲染后的新按钮由 renderDeck 兜底） */
 function setShareBusy(v) {
   shareBusy = v;
@@ -4451,9 +4562,10 @@ function onOpenProject(folder) {
   const p = projList.find((x) => x.folder === folder);
   if (!p) return;
   const user = getCurrentUser();
-  const url = 'plotter/index.html?u=' + encodeURIComponent(user.id) + '&p=' + encodeURIComponent(folder);
-  window.open(url, '_blank', 'noopener');
-  toast('已打开项目：' + p.name);
+  issueOpenToken(user.id, folder).then((r) => {
+    window.open(r.url, '_blank', 'noopener');
+    toast('已打开项目：' + p.name);
+  });
 }
 
 /* 分享 / 取消分享：写分享索引 works.json（存相对路径） + 双写 info.json.shared。
@@ -4786,8 +4898,9 @@ function onOpenWork(folder) {
       toast(ERR_MSG);
       return;
     }
-    const url = 'plotter/index.html?u=' + encodeURIComponent(uid) + '&p=' + encodeURIComponent(proj);
-    window.open(url, '_blank', 'noopener');
+    issueOpenToken(uid, proj).then((r) => {
+      window.open(r.url, '_blank', 'noopener');
+    });
   } catch (err) {
     toast(ERR_MSG);
   }

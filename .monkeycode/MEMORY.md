@@ -126,4 +126,14 @@ Entries discovered by the Agent during task execution should follow this format:
   - 邮件后端 qqmail-vercel 部署在 Vercel `https://qqmail-vercel.vercel.app`（api/mail.js，env QQ_MAIL_USER/QQ_MAIL_PASS）。前端 `Failed to fetch（目标 .../api/mail）` 是浏览器网络层错误，中国大陆访问 vercel.app 普遍不可达，需换国内可达的 serverless 平台或自有服务器部署 mail.js；mail.js/app.js 的 mailPost catch 已改为输出具体错误+目标地址便于诊断。
   - 门户与绘制器登录态互通：互为回退读取对方会话 key（`fnplt_session_ls/ss` ↔ `fnplt_mine_session`），clearSession 双向清理；ghRequest/ghDelete 均带 20s 超时。
 
+[Project Knowledge Summary]
+- Date: 2026-08-13
+- Context: Discovered by Agent while implementing 点鸭令牌 open-ticket scheme for opening plotter projects (anti 越权 / non-nested u/p params)
+- Category: Operations & Deployment | Build Methods | Troubleshooting & Debugging
+- Instructions:
+  - 打开绘制器改为点鸭令牌优先（用户需求：URL 不嵌套 u/p、一次性令牌、刷新不失效、关闭页面/新开标签页失效）：门户 issueOpenToken（projects.js/app.js）在点鸭 logs 表启用时 insert 一次性令牌（type='open_ticket'、user_id=<uid>、name=<token>、status='active'、detail=JSON{folder,exp,15min TTL}），URL 组装为 `plotter/index.html?t=<token>`；点鸭未启用或 insert 失败回退原 `?u=&p=` + localStorage 票据（fnplt_open_ticket_v1）。
+  - 绘制器侧：`plotter/dbticket.js`（传统 script，暴露 window.PlotterTicket.verify）读 `fnplt_gh_config_v2` 的 cfg.db.logs（configUrl 优先，空则 DbsApi.init({table:'logs'})），query `type='open_ticket' AND name='<token>'` 验证 active+未过期后 update status='consumed'（一次性）；script.js 外部模式 IIFE 改为 t 参数优先 + sessionStorage 缓存（fnplt_open_ticket_sess_v1 存 {u,p,exp,token}）：刷新命中缓存直接放行不重复校验，关闭页面/新标签页 sessionStorage 消失 + 令牌已消费 → 拒绝并提示「链接无效或已过期，请从「我的」页面重新打开该项目」。回退路径（u/p+票据）同样写 session 缓存。
+  - plotter/index.html 需引入 `../js/dbs-users.js`（增强版 DbsApi，支持 init({table}) 多表，dbs-all.js 为旧版单表）+ `dbticket.js`（在 script.js 前）。app.js 是构建合并产物（内含 dbstall 逻辑：DB_TABLES/dbEnabled/dbInsert，index.html 只加载 app.js），projects.js 等为独立 module 源码、import './dbstable.js'（注意文件名是 dbstable 不是 dbstall）。
+  - 测试脚本：`/tmp/opencode/dbticket.test.js`（点鸭令牌单元 8 场景）、`/tmp/opencode/ext-mode.test.js`（jsdom 外部模式 11 场景，jsdom 在 /tmp/opencode/dbs-test/node_modules）、`/tmp/opencode/issue-token.test.mjs`（vm 提取 app.js issueOpenToken 函数体测 4 场景，依赖真实 dbstable）。
+
 

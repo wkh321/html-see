@@ -16,12 +16,62 @@ import { getCurrentUser, userFolder, appendUploadLog } from './user.js';
 import { recordFileStatus } from './filestatus.js';
 import { GAL_CATEGORIES } from './data.js';
 import { shareWork, unshareWork, listMyWorks, readShareIndex, writeShareIndex, entryFromMeta, SHARE_INTERVAL } from './share.js';
+import { dbEnabled, dbInsert, DB_TABLES } from './dbstable.js';
 
 /* ---------- 我的项目 ---------- */
 let projList = [];          // 项目数组（含 folder 字段）
 let shareBusy = false;      // 单个分享/取消进行中：禁用其余分享按钮
 let batchBusy = false;      // 批量操作进行中：禁用批量栏按钮
 let myWorks = [];           // 我的公开作品（索引条目，含 folder/path/name）
+
+/* 打开函数绘制器的短期一次性票据：防止直接构造 ?u=&p= 链接越权读取他人私有项目。 */
+const OPEN_TICKET_KEY = 'fnplt_open_ticket_v1';
+const OPEN_TICKET_TTL = 15 * 60 * 1000;
+
+function issueOpenTicket(uid, folder) {
+  try {
+    const now = Date.now();
+    const key = String(uid || '') + '/' + String(folder || '');
+    let tickets = {};
+    try { tickets = JSON.parse(localStorage.getItem(OPEN_TICKET_KEY) || '{}') || {}; } catch (e) {}
+    for (const k of Object.keys(tickets)) {
+      if (!tickets[k] || !tickets[k].exp || tickets[k].exp <= now) delete tickets[k];
+    }
+    tickets[key] = {
+      u: String(uid || ''),
+      p: String(folder || ''),
+      nonce: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      exp: now + OPEN_TICKET_TTL,
+    };
+    localStorage.setItem(OPEN_TICKET_KEY, JSON.stringify(tickets));
+  } catch (e) {}
+}
+
+/* 打开函数绘制器的跳转组装：点鸭 logs 表启用时签发一次性令牌，URL 只带 ?t=<token>（不嵌套 u/p）；
+ * 未启用或签发失败时回退本地票据 + ?u=&p=。返回 Promise<{url}>。 */
+function issueOpenToken(uid, folder) {
+  const fallback = () => {
+    issueOpenTicket(uid, folder);
+    return { url: 'plotter/index.html?u=' + encodeURIComponent(uid) + '&p=' + encodeURIComponent(folder) };
+  };
+  if (window.DbsApi && dbEnabled(DB_TABLES.LOGS)) {
+    const token = Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
+    const exp = Date.now() + OPEN_TICKET_TTL;
+    return dbInsert(
+      {
+        type: 'open_ticket',
+        user_id: String(uid || ''),
+        name: token,
+        status: 'active',
+        detail: JSON.stringify({ folder: String(folder || ''), exp }),
+      },
+      DB_TABLES.LOGS
+    )
+      .then(() => ({ url: 'plotter/index.html?t=' + encodeURIComponent(token) }))
+      .catch(() => fallback());
+  }
+  return Promise.resolve(fallback());
+}
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -178,9 +228,10 @@ function onOpenProject(folder) {
   const p = projList.find((x) => x.folder === folder);
   if (!p) return;
   const user = getCurrentUser();
-  const url = 'plotter/index.html?u=' + encodeURIComponent(user.id) + '&p=' + encodeURIComponent(folder);
-  window.open(url, '_blank', 'noopener');
-  toast('已打开项目：' + p.name);
+  issueOpenToken(user.id, folder).then((r) => {
+    window.open(r.url, '_blank', 'noopener');
+    toast('已打开项目：' + p.name);
+  });
 }
 
 /* 分享 / 取消分享：写分享索引 works.json（存相对路径） + 双写 info.json.shared。
@@ -513,8 +564,9 @@ function onOpenWork(folder) {
       toast(ERR_MSG);
       return;
     }
-    const url = 'plotter/index.html?u=' + encodeURIComponent(uid) + '&p=' + encodeURIComponent(proj);
-    window.open(url, '_blank', 'noopener');
+    issueOpenToken(uid, proj).then((r) => {
+      window.open(r.url, '_blank', 'noopener');
+    });
   } catch (err) {
     toast(ERR_MSG);
   }
