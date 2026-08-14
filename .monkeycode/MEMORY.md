@@ -133,7 +133,7 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: Discovered by Agent while reconciling remote (origin/main) 与本地冲突后确定绘制器打开方案演进
 - Category: Operations & Deployment | Troubleshooting & Debugging | Workflow & Collaboration
 - Instructions:
-  - 绘制器打开方案演进（重要，避免未来混淆）：远程曾两度推进「点鸭一次性令牌」方案（368791f 早期 ?t= 校验 + 308548a 强化 ?t=&id=/IP 绑定/刷新重签，配套 `plotter/dbticket.js` 暴露 `window.PlotterTicket.verify`），后被本地「直开 u/p」方案（6d95a33 → 2a8ad12）取代：URL 用 `?u=<userId>&p=<projectId>`（p 为 project.json 的 `_id` 唯一 ID，兼容旧 p=目录名并自动升级 URL），删除令牌代码（dbticket.js、issueOpenToken、OPEN_TICKET_TTL、getClientIpSafely）。本地 2a8ad12 已包含远程全部旋转功能改进（computeSampleRange 动态采样、segScreenVisible 离屏剔除、圆上点/连线点模式、toLocalMath 命中检测、公转模型），两者差异仅在打开方案本身。
-  - 合并教训：当远程与本地在同一批文件上做方向对立的改动时，先做三向 diff（`git diff <远程最新> <本地> -- <file>`）确认差异性质，区分「正交功能增强」与「竞争方案」，再决定取舍，勿盲目 rebase 产生语义错误合并。
+  - 绘制器打开方案演进（重要，避免未来混淆）：远程曾两度推进「点鸭一次性令牌」方案（368791f 早期 ?t= 校验 + 308548a 强化 ?t=&id=/IP 绑定/刷新重签，配套 `plotter/dbticket.js` 暴露 `window.PlotterTicket.verify` 三参校验+10s withTimeout+`__dbsConfigs['logs']` 回填），后被本地「直开 u/p」方案（6d95a33 → 2a8ad12）取代：URL 用 `?u=<userId>&p=<projectId>`（p 为 project.json 的 `_id` 唯一 ID，兼容旧 p=目录名并自动升级 URL），删除令牌代码（dbticket.js、issueOpenToken、OPEN_TICKET_TTL、getClientIpSafely）。本地 2a8ad12 已包含远程全部旋转功能改进（computeSampleRange 动态采样、segScreenVisible 离屏剔除、圆上点/连线点模式、toLocalMath 命中检测、公转模型），两者差异仅在打开方案本身。
+  - 合并教训：当远程与本地在同一批文件上做方向对立的改动时，先做三向 diff（`git diff <远程最新> <本地> -- <file>`）确认差异性质，区分「正交功能增强」与「竞争方案」，再决定取舍，勿盲目 rebase 产生语义错误合并。令牌方案的历史测试脚本（/tmp/opencode/dbticket.test.js、ext-mode.test.js、issue-token.test.mjs）已随方案废弃失效。
 
 
