@@ -36,11 +36,13 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: Discovered by Agent while fixing the clamp redeclaration build failure and re-running smoke tests
 - Category: Build Methods | Testing Methods | Troubleshooting & Debugging
 - Instructions:
-  - 本项目是非构建工具单页应用：源码为 `js/*.js`（ES Module，含 `bootstrap.js` 引导）与 `css/*.css`，通过 `/tmp/opencode/build.sh` 合并生成 `js/app.js` 与 `css/style.css`（`index.html` 只引用这两个产物）。
-  - 构建命令：`/tmp/opencode/build.sh`（合并 JS 时去除 import/export，bootstrap.js 内容追加末尾；执行后自动 `node --check js/app.js`）。
-  - 冒烟测试命令：`NODE_PATH="$(npm root -g)" node /tmp/opencode/smoke.mjs`（依赖全局安装的 jsdom 29）。
+  - 本项目是非构建工具单页应用：源码为 `js/*.js`（ES Module，含 `bootstrap.js` 引导）与 `css/*.css`，通过 `/tmp/opencode/build.mjs` 合并生成 `js/app.js` 与 `css/style.css`（`index.html` 只引用这两个产物）。
+  - 构建命令：`node /tmp/opencode/build.mjs <输出目录>`（合并 JS 去除 import/export，import 状态机整块删除、export 仅剥离关键字保留声明；文件按字母序 + bootstrap.js 置尾，文件间加 `/* ===== name.js ===== */` 标记；CSS 顺序为显式依赖顺序：variables/base/components/topnav/sidebar/profile/profile-settings/devices/auth/ai-panel/admin/projects/gallery/music-player）。验证产物正确性用「输出到临时目录再与工作区 diff」方式，勿手改 js/app.js。
+  - 冒烟测试（jsdom 29 已全局安装，路径 `/usr/local/lib/node_modules/jsdom`，Node v22）：历史的全量 `smoke.mjs` 与 `build.sh` 已丢失，按上述两条重建；下文旧条目中关于 smoke.mjs 的 fetch mock 技巧（URL 编码中文路径、rate_limit mock、delayPath 捕捉瞬时状态、DbsApi 按 table 独立实例、mail 验证码分支）仍适用于新测试的 mock 实现。
+    - 门户侧：`node /tmp/opencode/portal-smoke.mjs`（index.html + js/app.js 用 vm.runInContext 执行，验证 boot、plotterOpenUrl/onOpenProject/onOpenWork 跳转参数；需要 localStorage 预置 `fnplt_gh_config_v2` 与 `fnplt_mine_session`）。
+    - 绘制器侧：`node /tmp/opencode/plotter-ext-test.mjs`（jsdom 不加载外部 `<script>`，必须 runScripts:'outside-only' 再按序 vm.runInContext dbs-all/dbs-users/auth/script/mdeditor；断言用 vm.runInContext 读顶层 let/const；覆盖 9 个场景：ID 直开、旧链接升级、new=1、残缺链接锁屏、云端打开同步地址栏、保存新项目、新建清空上下文、cloud-modal UI+30s 超时、外部保存写回原文件夹）。
   - 历史坑：模块文件顶层出现同名声明会在合并时冲突。已处理三处——`devices.js` 的 `clamp` 改为 `dvcClamp`（遵循 dvc 前缀约定），`projects.js` 的 `esc` 改为 `projEsc`，`music-panel.js` 的 `fmtTime` 改为 `mpFmtTime`（与 devices.js 冲突）。新增模块时避免与既有模块使用相同顶层 `const/function` 名。
-  - 构建产物 `js/app.js` 由脚本生成，勿手改；源码改动后必须重跑 build.sh 并复跑 smoke.mjs。
+  - 构建产物 `js/app.js` 由脚本生成，勿手改；源码改动后必须重跑 build.mjs 并复跑 portal-smoke.mjs 与 plotter-ext-test.mjs。
   - 预览环境只暴露一个端口，静态站点用 `python3 -m http.server 8000` 后台启动后走 `request_preview`。
 
 [Project Knowledge Summary]
@@ -77,7 +79,7 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: Discovered by Agent while integrating 点鸭数据表 as a log/record table coexisting with GitHub storage
 - Category: Build Methods | Operations & Deployment | Troubleshooting & Debugging
 - Instructions:
-  - 点鸭数据表接入：`js/dbs-all.js`（用户提供的 194KB 封装，暴露 `window.DbsApi`）以独立 `<script>` 在 index.html 引入，构建脚本 build.sh 合并 JS 时排除 `dbs-all.js`（`f !== 'dbs-all.js'`）；配置存 localStorage cfg.db = { enabled, configUrl }（configUrl 留空则用 dbs-all.js 内置配置，填了则 `DbsApi.init({ configUrl })` 动态加载配置类）。
+  - 点鸭数据表接入：`js/dbs-all.js`（用户提供的 194KB 封装，暴露 `window.DbsApi`）以独立 `<script>` 在 index.html 引入，构建脚本 build.mjs 合并 JS 时排除 `dbs-all.js`（`f !== 'dbs-all.js'`）；配置存 localStorage cfg.db = { enabled, configUrl }（configUrl 留空则用 dbs-all.js 内置配置，填了则 `DbsApi.init({ configUrl })` 动态加载配置类）。
   - 数据表接入层 `js/dbstable.js`（会被合并进 app.js）：`dbEnabled()`（需 cfg.db.enabled 且 window.DbsApi 存在）、`getDb()`（懒加载缓存 Promise）、`dbTest`/`dbGetFields`/`dbQuery`/`dbInsert`/`dbUpdate`/`dbRemove`，业务封装 `dbAppendLog(type,userId,name,status,detail)` 与 `dbQueryLogs(type,userId,limit)`（filter 用 SQL 风格 `type='file_status' AND user_id='u1'`，单引号内引号需转义，sort='createdAt DESC'）。
   - 记录表字段（用户需在点鸭后台添加，id 已有）：type / user_id / name / status / detail（detail 存 JSON 文本，如作品类型）；createdAt/updatedAt 系统自动。
   - 数据同步策略：记录表与 GitHub 共存双写、读取优先数据表。`recordFileStatus`（filestatus.js）与 `appendUploadLog`（user.js）在写 GitHub 前先 `dbAppendLog`（失败静默，GitHub 为权威存储）；`getFileStatusList` 优先 `dbQueryLogs`，有数据即返回，失败/空回退 GitHub。
@@ -89,7 +91,7 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: Discovered by Agent while integrating 点鸭用户表 as a second table (双表共存：记录表 logs + 用户表 users)
 - Category: Build Methods | Operations & Deployment | Troubleshooting & Debugging
 - Instructions:
-  - 用户表接口文件 `/workspace/js/dbs-users.js`（增强版 DbsApi，数据表 users）同样以独立 `<script>` 引入，且必须放在 dbs-all.js 之后（两文件都挂 `window.DbsApi`，后加载覆盖，属预期）；build.sh 排除列表为 `f !== 'dbs-all.js' && f !== 'dbs-users.js'`。index.html 顺序：dbs-all.js → dbs-users.js → app.js。
+  - 用户表接口文件 `/workspace/js/dbs-users.js`（增强版 DbsApi，数据表 users）同样以独立 `<script>` 引入，且必须放在 dbs-all.js 之后（两文件都挂 `window.DbsApi`，后加载覆盖，属预期）；build.mjs 排除列表为 `f !== 'dbs-all.js' && f !== 'dbs-users.js'`。index.html 顺序：dbs-all.js → dbs-users.js → app.js。
   - cfg.db 现为双表结构 `{ logs:{enabled,configUrl}, users:{enabled,configUrl} }`；旧 `{enabled,configUrl}` 由 `normalizeDbCfg` 自动迁移为 logs/users 双配置。configUrl 留空用内置（table 模式），填了则 `DbsApi.init({configUrl})`——双表都用 configUrl 会互相覆盖 `module.exports`，因此默认建议用内置。
   - 双表接入层：`js/dbstable.js` 定义 `DB_TABLES={LOGS:'logs',USERS:'users'}`；`ensureConfigPool()` 把 dbs-all.js 写入 `window.module.exports` 的内置配置搬进 `window.__dbsConfigs['logs']`（增强版 DbsApi `init({table})` 从该池取数）；`getDb(table)` 按表名缓存实例、无 configUrl 时 `DbsApi.init({table})`；新增 `resetDb()` 清缓存（换 configUrl 后需调用再测）。dbQuery/dbInsert/dbUpdate/dbRemove 均带 table 参数（默认 LOGS）。
   - 用户表同步 `js/dbusers.js`：`dbUserSync(user)` 按 **user_id**（GitHub 用户 ID）匹配 upsert（匹配键已从 name 改为 user_id；存量按 name 匹配写入的无 user_id 行自动回退补写并补齐 user_id），字段含 name/role/avatar/stats/whitelist/devices/ip/email（stats/whitelist/devices JSON 序列化且 devices<=30 条、email<=120、ip<=100，失败静默），`dbUserGet(userId)` 按 user_id 读，`dbUserFindByEmail(email)` 按 email 小写过滤，`dbUserEnabled()` 检查 cfg.db.users.enabled。user.js `writeUser` 末尾挂 `dbUserSync(user)`（GitHub 仍权威、数据表双写、读取优先数据表）。
@@ -112,10 +114,10 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: Discovered by Agent while integrating the user-uploaded function plotter (zip) with the portal 我的页面
 - Category: Operations & Deployment | Build Methods | Troubleshooting & Debugging
 - Instructions:
-  - 门户与绘制器对接：用户上传的完整版函数绘制器（index.html/style.css/script.js/auth.js/mdeditor.js，GitHub 存储，配置 key `fnplt_gh_config`、session `fnplt_session_ls/ss`）部署在 `/workspace/plotter/`（与门户同源同端口共享 localStorage，build.sh 只合并 js/ 目录，plotter/ 不受影响）。门户「我的页面/公开作品」的「打开」按钮跳转 `plotter/index.html?u=<userId>&p=<项目文件夹>`（projects.js onOpenProject/onOpenWork，onOpenWork 从索引 path `users/<uid>/projects/<folder>` 解析 uid/项目）。
+  - 门户与绘制器对接：用户上传的完整版函数绘制器（index.html/style.css/script.js/auth.js/mdeditor.js，GitHub 存储，配置 key `fnplt_gh_config`、session `fnplt_session_ls/ss`）部署在 `/workspace/plotter/`（与门户同源同端口共享 localStorage，build.mjs 只合并 js/ 目录，plotter/ 不受影响）。门户「我的页面/公开作品」的「打开」按钮跳转 `plotter/index.html?u=<userId>&p=<项目ID>`（projects.js onOpenProject/onOpenWork，URL 用 project.json 的 `_id` 唯一 ID 而非文件夹名，onOpenWork 先读 info.json 的 meta.id、失败回退文件夹名；兼容旧链接 p=文件夹名，绘制器打开后自动升级为 ID）。
   - plotter 外部项目模式（script.js 末尾 IIFE）：URL 带 u/p 时启动后 extOpenProject 读取 `users/<uid>/projects/<folder>/project.json`（applyProjectData）+ question.txt + analysis.txt 自动加载；外部模式下覆盖 window.menuSaveCloud → extSaveProject 写回原项目文件夹（project.json + question.txt + analysis.txt + 保留并更新 info.json 元数据），普通模式保持原云端逻辑。门户项目文件夹格式即 zip 版云端新格式（project.json + question.txt + analysis.txt），project.json 含 `_id=项目文件夹名`。
   - plotter auth.js getConfig 回退：自己的 `fnplt_gh_config` 缺失时读门户 `fnplt_gh_config_v2`（同一 GitHub 配置一次配置两页共用）；脚本内部引用外部模式时勿用顶层 let/const 重复命名（script.js 顶层声明冲突会 SyntaxError），追加模块包 IIFE。
-  - 联调验证：`/tmp/opencode/plotter-ext.mjs`（jsdom + URL 参数 + fetch mock，验证加载/渲染/保存写回；需 stub canvas 2D/katex/marked/math/Worker/requestAnimationFrame）。plotter 页面函数表达式渲染在 `[data-katex]` 属性（katex 渲染），textContent 只有 `#N函数`。预览：plotter 页面在 /plotter/index.html。
+  - 联调验证：`/tmp/opencode/plotter-ext-test.mjs`（jsdom + URL 参数 + vm.runInContext 执行真实脚本 + fetch mock，验证加载/渲染/保存写回；需 stub canvas 2D/katex/marked/math/Worker/requestAnimationFrame，且 localStorage 需预置 `fnplt_gh_config` 否则 extOpen 走「未找到仓库配置」回退）。plotter 页面函数表达式渲染在 `[data-katex]` 属性（katex 渲染），textContent 只有 `#N函数`。预览：plotter 页面在 /plotter/index.html。
 
 [Project Knowledge Summary]
 - Date: 2026-08-12
