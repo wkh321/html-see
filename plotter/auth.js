@@ -600,7 +600,7 @@
     for (var i = 0; i < list.length; i++) {
       if (list[i].id === String(id)) {
         var p = list[i];
-        var result = { project: null, question: null, analysis: '', name: p.name, id: p.id, savedAt: p.savedAt };
+        var result = { project: null, question: null, analysis: '', name: p.name, id: p.id, savedAt: p.savedAt, path: p.path || '' };
         if (p.isFolder) {
           var raw = await ghRead(cfg, buildPath(p.path, 'project.json'));
           try { result.project = JSON.parse(raw); } catch (e) {}

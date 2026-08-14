@@ -227,7 +227,7 @@
               <button type="button" class="dropdown-action-btn" onclick="resetWindowLayout()">恢复默认窗口布局</button>
             </div>
           </div>
-          <div class="placement-toast" id="placementToast">按键盘上的 ESC 即可退出 <button class="toast-close" onclick="exitPointPlacement()" title="退出">&times;</button></div>
+          <div class="placement-toast" id="placementToast">点击空白处添加坐标点；点击函数/圆/连线可绑定（Y 跟随该图像） · 按 ESC 退出 <button class="toast-close" onclick="exitPointPlacement()" title="退出">&times;</button></div>
           <div class="line-dialog" id="lineDialog">
             <div class="line-dialog-header"><h3>连线：<span id="linePointA"></span>→<span id="linePointB"></span></h3><button class="line-close" onclick="exitLinePlacement()">&times;</button></div>
             <div class="line-dialog-body"><p>选择类型：</p><div class="line-type-options"><button class="line-type-btn active" data-line-type="segment" onclick="selectLineType('segment')">线段</button><button class="line-type-btn" data-line-type="line" onclick="selectLineType('line')">直线</button><button class="line-type-btn" data-line-type="ray" onclick="selectLineType('ray')">射线</button></div></div>
@@ -494,18 +494,23 @@
     </div>
   </div>
 
-  <!-- ===== 打开云端文件弹窗 ===== -->
-  <div class="auth-overlay" id="openCloudOverlay">
-    <div class="auth-dialog">
-      <div class="auth-head"><span style="font-weight:600;padding:8px 12px;">打开云端文件</span></div>
-      <div class="auth-body">
-        <div class="cloud-id-search">
-          <input type="text" id="openCloudIdInput" placeholder="输入项目唯一 ID 直接打开" style="flex:1;min-width:0;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
-          <button class="primary" id="openCloudIdBtn">打开</button>
+  <!-- ===== 打开云端文件弹窗（拟态框） ===== -->
+  <div class="auth-overlay cloud-modal-overlay" id="openCloudOverlay">
+    <div class="auth-dialog cloud-modal">
+      <div class="auth-head cloud-modal-head">
+        <span class="cloud-modal-title"><span class="cloud-modal-icon">&#128194;</span>打开云端文件</span>
+        <button class="cloud-modal-close" id="openCloudModalClose" title="关闭">&times;</button>
+      </div>
+      <div class="auth-body cloud-modal-body">
+        <div class="cloud-search-box">
+          <input type="text" id="openCloudIdInput" placeholder="输入项目唯一 ID 直接打开">
+          <button class="cloud-search-btn" id="openCloudIdBtn">打开</button>
         </div>
         <div class="auth-msg" id="openCloudMsg" style="display:none;"></div>
         <div class="cloud-list" id="openCloudList"></div>
-        <div class="modal-actions"><button class="cancel" id="openCloudCancelBtn">关闭</button></div>
+        <div class="cloud-modal-foot">
+          <button class="cloud-cancel-btn" id="openCloudCancelBtn">关闭</button>
+        </div>
       </div>
     </div>
   </div>
@@ -872,6 +877,8 @@
   </div>
 
   <!-- ===== 加载拆分后的 JavaScript ===== -->
+  <script src="../js/dbs-all.js"></script>
+  <script src="../js/dbs-users.js"></script>
   <script src="auth.js"></script>
   <script src="script.js"></script>
   <script src="mdeditor.js"></script>

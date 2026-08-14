@@ -1,11 +1,5 @@
 /* ===== admin.js ===== */
 
-
-
-
-
-
-
 function initAdmin() {
   renderTabs();
   renderPanes();
@@ -1107,9 +1101,6 @@ const easeOutExpo = (t) => (t === 1 ? 1 : 1 - Math.pow(2, -10 * t));
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 
 
-
-
-
 /* 会话内首次请求才注入 AI 守则；「新对话」按钮会重置 */
 let aiSessionStarted = false;
 
@@ -1502,10 +1493,6 @@ function extractPath(data, path) {
  * 快速登录：从 users/_index.txt 拉取用户索引，选择后自动定位用户 ID
  */
 
-
-
-
-
 let authSuccessHandler = null;
 
 function setAuthSuccessHandler(fn) {
@@ -1716,7 +1703,6 @@ async function submit() {
  * raw.githubusercontent.com，最终统一回退文字「学」。
  * 图片 URL 命中缓存时立即显示，保证顶栏 / 个人信息 / 个人资料三处同步。
  */
-
 
 const FALLBACK_TEXT = '学';
 const imgCache = {};
@@ -1931,7 +1917,6 @@ const adminData = {
  * 用户表字段（users）：id / name / role / avatar / stats / whitelist / devices / ip
  */
 
-
 const DB_TABLES = {
   LOGS: 'logs',
   USERS: 'users',
@@ -2104,7 +2089,6 @@ async function dbQueryLogs(type, userId, limit) {
  * user_id 字段；email 存绑定邮箱，供邮箱登录与唯一性检查读优先查询）。
  */
 
-
 function dbUserEnabled() {
   return dbEnabled(DB_TABLES.USERS);
 }
@@ -2181,10 +2165,6 @@ async function dbUserFindByEmail(email) {
  *  - 兼容鼠标滚轮 / 手机触摸 / 鼠标左键按住拖动（拖动时禁止选中文本）
  *  - 右侧纵向滑动条
  */
-
-
-
-
 
 const DVC_CARD_H = 76;      // 卡片高度
 const DVC_GAP = 10;         // 卡片间距（不宜过宽）
@@ -2479,9 +2459,6 @@ function updateScrollbar() {
  * 记录行格式：ISO时间\t类型\t作品名\t状态
  */
 
-
-
-
 const FS_TYPES = ['错题上传', '题目', '知识库', '项目', '分享'];
 
 function fsLogPath(cfg, userId) {
@@ -2595,9 +2572,6 @@ async function openFileStatusPage() {
  *  - 下方作品网格卡片：纵向滚动多行，每行 4 个作品卡片，玻璃拟态磨砂 + 翻折入场动画
  *  - 鼠标左键按住可拖拽滚动（禁止选中文字）；点击作品卡片在新窗口打开
  */
-
-
-
 
 const GAL_STATE = { category: '全部', sort: 'default', keyword: '', error: '' };
 let galWorks = [];
@@ -3137,7 +3111,6 @@ function withGhLock(key, fn) {
  * 前端本地保存用于比对（兼容 Serverless 无状态特性）。
  */
 
-
 function mailBase() {
   try {
     const cfg = getConfig();
@@ -3206,9 +3179,6 @@ function mailClearCode() {
  *  - 交互：右上角收起按钮（向左水平插入、露出约 10%）、展开状态可拖拽、进度条点击跳转
  *  - 层级最高（z-index 9999），拖拽与下拉刷新期间禁止选中文字
  */
-
-
-
 
 const PANEL_ID = 'mpPanel';
 const RANDOM_PICK_LIST = 0.65; // 随机模式取列表内歌曲的概率
@@ -3584,17 +3554,6 @@ function mpFmtTime(sec) {
 
 /* ===== pages.js ===== */
 
-
-
-
-
-
-
-
-
-
-
-
 const PAGE_EL = {
   profile: 'page-profile',
   admin: 'page-admin',
@@ -3832,13 +3791,6 @@ function renderPlaceholder(pageId) {
  * 个人资料页（页签「个人资料」）：
  * 昵称 / 密码 / 头像 / 白名单 / 设备记录 / 黑名单 / 退出 / 切换登录 / 注销账户
  */
-
-
-
-
-
-
-
 
 /* 登录态变化后的全局刷新回调（由 app.js 注入，避免循环依赖） */
 let onUserChanged = null; // (user) => void
@@ -4343,45 +4295,19 @@ async function onDeleteAccount() {
  *     双写 info.json 的 shared 字段；卡片勾选后顶部批量栏可批量分享/取消（队列 + 600ms 间隔 + 额度检查）。
  */
 
-
-
-
-
-
-
 /* ---------- 我的项目 ---------- */
 let projList = [];          // 项目数组（含 folder 字段）
 let shareBusy = false;      // 单个分享/取消进行中：禁用其余分享按钮
 let batchBusy = false;      // 批量操作进行中：禁用批量栏按钮
 let myWorks = [];           // 我的公开作品（索引条目，含 folder/path/name）
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-/* 打开函数绘制器的短期一次性票据：防止直接构造 ?u=&p= 链接越权读取他人私有项目。
- * 门户打开项目前生成（含 nonce + u/p + 过期时间），存同源 localStorage；
- * plotter 打开时校验 u/p 匹配且未过期后放行，过期自动清理。
- * 票据不随 URL 传递，因此直接复制/构造 ?u=&p= 链接无法通过校验。 */
-const OPEN_TICKET_KEY = 'fnplt_open_ticket_v1';
-const OPEN_TICKET_TTL = 15 * 60 * 1000;
-
-function issueOpenTicket(uid, folder) {
-  try {
-    const now = Date.now();
-    const key = String(uid || '') + '/' + String(folder || '');
-    let tickets = {};
-    try { tickets = JSON.parse(localStorage.getItem(OPEN_TICKET_KEY) || '{}') || {}; } catch (e) {}
-    for (const k of Object.keys(tickets)) {
-      if (!tickets[k] || !tickets[k].exp || tickets[k].exp <= now) delete tickets[k];
-    }
-    tickets[key] = {
-      u: String(uid || ''),
-      p: String(folder || ''),
-      nonce: Math.random().toString(36).slice(2) + Date.now().toString(36),
-      exp: now + OPEN_TICKET_TTL,
-    };
-    localStorage.setItem(OPEN_TICKET_KEY, JSON.stringify(tickets));
-  } catch (e) {}
+/* 组装函数绘制器打开链接：URL 只携带用户 ID（u）与项目唯一 ID（p，即 project.json 的 _id），
+ * 不携带项目名称，避免重名 / 改名导致定位错误；打开后绘制器按 ID 定位项目文件夹。 */
+function plotterOpenUrl(userId, projectId) {
+  return 'plotter/index.html?u=' + encodeURIComponent(String(userId || '')) + '&p=' + encodeURIComponent(String(projectId || ''));
 }
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 /* 分享/取消进行中：禁用/恢复所有分享按钮（含批量渲染后的新按钮由 renderDeck 兜底） */
 function setShareBusy(v) {
@@ -4531,14 +4457,15 @@ function cardInner(p) {
   `;
 }
 
-/* 打开项目：对接函数绘制器（plotter/），新标签页加载该项目数据 */
+/* 打开项目：对接函数绘制器（plotter/），新标签页加载该项目数据。
+ * URL 用项目唯一 ID（p）标识，不用名称/文件夹名，避免重名与改名导致定位误差。 */
 function onOpenProject(folder) {
   const p = projList.find((x) => x.folder === folder);
   if (!p) return;
   const user = getCurrentUser();
-  issueOpenTicket(user.id, folder);
-  const url = 'plotter/index.html?u=' + encodeURIComponent(user.id) + '&p=' + encodeURIComponent(folder);
-  window.open(url, '_blank', 'noopener');
+  if (!user || !user.id) { toast('请先登录'); return; }
+  const projectId = p.id || folder;
+  window.open(plotterOpenUrl(user.id, projectId), '_blank', 'noopener');
   toast('已打开项目：' + p.name);
 }
 
@@ -4860,8 +4787,10 @@ function onMyWorksClick(e) {
   }
 }
 
-/* 打开公开作品：从索引 path（users/<uid>/projects/<folder>）解析项目定位并跳转函数绘制器 */
-function onOpenWork(folder) {
+/* 打开公开作品：从索引 path（users/<uid>/projects/<folder>）解析项目定位，
+ * 先读取该作品 info.json 拿到项目唯一 ID，再以 ?u=<uid>&p=<项目ID> 跳转函数绘制器。
+ * 分享索引未存 ID，故需额外一次读取；读取失败时回退用文件夹名定位。 */
+async function onOpenWork(folder) {
   try {
     const w = myWorks.find((x) => x.folder === folder);
     const p = String((w && w.path) ? w.path : '').split('/').filter(Boolean);
@@ -4872,9 +4801,17 @@ function onOpenWork(folder) {
       toast(ERR_MSG);
       return;
     }
-    issueOpenTicket(uid, proj);
-    const url = 'plotter/index.html?u=' + encodeURIComponent(uid) + '&p=' + encodeURIComponent(proj);
-    window.open(url, '_blank', 'noopener');
+    let projectId = proj;
+    try {
+      const cfg = requireConfig();
+      const raw = await ghRead(cfg, buildPath(cfg.usersRoot, uid, 'projects', proj, 'info.json'));
+      if (raw) {
+        const meta = JSON.parse(raw);
+        if (meta && meta.id) projectId = meta.id;
+      }
+    } catch (e) {}
+    window.open(plotterOpenUrl(uid, projectId), '_blank', 'noopener');
+    toast('已打开作品：' + ((w && w.name) || proj));
   } catch (err) {
     toast(ERR_MSG);
   }
@@ -4918,10 +4855,6 @@ async function onUnshare(folder, item) {
  * 主内容区下拉刷新：在滚动顶部时向下拖拽 → 重新拉取用户数据并刷新 UI。
  * 桌面鼠标拖拽与触屏均可触发。
  */
-
-
-
-
 
 const THRESHOLD = 64;
 
@@ -5022,7 +4955,6 @@ function initPullRefresh() {
  *  - 批量操作：顺序队列 + 每操作间隔 SHARE_INTERVAL + 先查 /rate_limit 额度
  */
 
-
 const SHARE_INTERVAL = 600; // 批量操作每个写请求的间隔（ms）
 const SHARE_DIR = 'share'; // 用户公开作品索引目录（share 目录内为 JSON 索引，非作品本体）
 const SHARE_FILE = 'works.json';
@@ -5100,7 +5032,6 @@ async function listMyWorks(cfg, uid) {
 
 /* ===== sidebar.js ===== */
 
-
 function initSidebar() {
   const nav = document.getElementById('sidebarNav');
   nav.addEventListener('click', (e) => {
@@ -5129,13 +5060,6 @@ function setSidebarAdminVisibility(visible) {
 }
 
 /* ===== topnav.js ===== */
-
-
-
-
-
-
-
 
 function initTopNav() {
   renderNewMenu();
@@ -5172,14 +5096,14 @@ function initTopNav() {
     handleUserAction(item.dataset.action);
   });
 
-  /* 返回 / 品牌 / 绘图主页标签：跳转到函数绘制器（plotter/index.html） */
-  const _user = getCurrentUser();
-  const _plotterUrl = 'plotter/index.html' + (_user && _user.id ? '?u=' + encodeURIComponent(_user.id) : '');
-  bindJump('backBtn', _plotterUrl);
-  bindJump('brandBtn', _plotterUrl);
-  bindJump('quickBackBtn', _plotterUrl);
+  /* 返回 / 品牌 / 绘图主页标签：跳转到函数绘制器空白新项目（?new=1 不经令牌校验）。
+   * 打开用户已保存项目一律从「我的页面」走一次性令牌，顶部按钮不携带用户数据。 */
+  const plotterUrl = 'plotter/index.html?new=1';
+  bindJump('backBtn', plotterUrl);
+  bindJump('brandBtn', plotterUrl);
+  bindJump('quickBackBtn', plotterUrl);
   document.querySelectorAll('.nav-tab[data-nav="plotter"]').forEach((btn) =>
-    btn.addEventListener('click', () => { location.href = _plotterUrl; })
+    btn.addEventListener('click', () => { location.href = plotterUrl; })
   );
   document.getElementById('manualBtn').addEventListener('click', () =>
     toast('使用手册：左侧导航切换页面，右侧 AI 球形助手可拖动、双击展开')
@@ -5295,13 +5219,9 @@ function renderNewMenu() {
  *  - users/<userId>/projects/ 云端项目
  */
 
-
-
-
-
 const SESSION_KEY = 'fnplt_mine_session';
-const PLOTTER_SESSION_LS = 'fnplt_session_ls'; // 函数绘制器「记住我」会话
-const PLOTTER_SESSION_SS = 'fnplt_session_ss'; // 函数绘制器「临时」会话
+const PLOTTER_SESSION_LS = 'fnplt_session_ls';
+const PLOTTER_SESSION_SS = 'fnplt_session_ss';
 const SESSION_TTL = 2 * 24 * 3600 * 1000; // 2 天
 const MAX_DEVICES = 30;
 
@@ -5891,7 +5811,7 @@ async function withSkeleton(container, count, cls, task) {
   }
 }
 
-/* ===== bootstrap.js (引导) ===== */
+/* ===== bootstrap.js ===== */
 initTopNav();
 initSidebar();
 initPages();

@@ -1921,17 +1921,39 @@ body{
 .cloud-id-row{font-size:12px;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:10px;line-height:1.5;}
 .cloud-id-row code{background:#eef2ff;color:#6366f1;padding:1px 6px;border-radius:4px;font-size:12px;word-break:break-all;}
 .cloud-id-search{display:flex;gap:8px;}
-.cloud-list{margin-top:10px;max-height:260px;overflow-y:auto;}
-.cloud-list-title{font-size:12px;font-weight:600;color:#475569;margin:10px 0 6px;}
-.cloud-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;cursor:pointer;transition:all .12s;margin-bottom:6px;}
-.cloud-item:hover{border-color:#6366f1;background:#f8fafc;}
-.cloud-item-name{font-size:13px;font-weight:600;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.cloud-item-id{font-size:11px;color:#6366f1;background:#eef2ff;padding:1px 6px;border-radius:4px;white-space:nowrap;}
-.cloud-item-time{font-size:11px;color:#94a3b8;margin-left:auto;white-space:nowrap;}
-.cloud-empty{font-size:12px;color:#94a3b8;padding:12px;text-align:center;}
+.cloud-list{margin-top:12px;max-height:320px;overflow-y:auto;padding-right:2px;}
+.cloud-list-title{font-size:12px;font-weight:600;color:#475569;margin:10px 0 8px;}
+.cloud-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:11px 13px;cursor:pointer;transition:all .15s;margin-bottom:8px;box-shadow:0 1px 2px rgba(15,23,42,.04);}
+.cloud-item:hover{border-color:#6366f1;background:#f8fafc;transform:translateY(-1px);box-shadow:0 4px 12px rgba(79,70,229,.12);}
+.cloud-item-icon{width:34px;height:34px;border-radius:8px;background:#eef2ff;color:#4f46e5;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.cloud-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;align-items:flex-start;}
+.cloud-item-name{font-size:14px;font-weight:600;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+.cloud-item-id{font-size:11px;color:#6366f1;background:#eef2ff;padding:1px 8px;border-radius:4px;white-space:nowrap;}
+.cloud-item-time{font-size:11px;color:#94a3b8;margin-left:auto;white-space:nowrap;flex-shrink:0;}
+.cloud-item-open{font-size:12px;color:#4f46e5;border:1px solid #4f46e5;border-radius:6px;padding:3px 10px;flex-shrink:0;transition:all .12s;}
+.cloud-item:hover .cloud-item-open{background:#4f46e5;color:#fff;}
+.cloud-empty{font-size:12px;color:#94a3b8;padding:14px;text-align:center;}
 #saveCloudName.error,#openCloudIdInput.error{border-color:#dc2626;background:#fef2f2;}
 .primary.danger{background:#fff;border-color:#dc2626;color:#333;}
 .primary.danger:hover{background:#fef2f2;border-color:#dc2626;}
+
+/* ==================== 打开云端文件拟态框 ==================== */
+.cloud-modal-overlay{background:rgba(15,23,42,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}
+.cloud-modal{width:560px;max-width:94vw;border-radius:16px;background:linear-gradient(180deg,#ffffff,#f8fafc);box-shadow:0 24px 60px rgba(2,6,23,.35);overflow:hidden;}
+.cloud-modal-head{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;border-bottom:1px solid rgba(255,255,255,.14);background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;}
+.cloud-modal-title{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;}
+.cloud-modal-icon{font-size:18px;}
+.cloud-modal-close{width:30px;height:30px;border:none;border-radius:8px;background:rgba(255,255,255,.14);color:#fff;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s;}
+.cloud-modal-close:hover{background:rgba(255,255,255,.28);}
+.cloud-modal-body{padding:16px 20px 18px;}
+.cloud-search-box{display:flex;gap:8px;}
+.cloud-search-box input{flex:1;min-width:0;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;outline:none;transition:border-color .12s,box-shadow .12s;}
+.cloud-search-box input:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.15);}
+.cloud-search-btn{padding:0 20px;border:none;border-radius:8px;background:#4f46e5;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:background .12s;}
+.cloud-search-btn:hover{background:#4338ca;}
+.cloud-modal-foot{margin-top:14px;text-align:right;}
+.cloud-cancel-btn{padding:8px 22px;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#475569;font-size:13px;cursor:pointer;transition:all .12s;}
+.cloud-cancel-btn:hover{border-color:#94a3b8;background:#f1f5f9;}
 
 
 /* ==================== 新增功能样式 ==================== */

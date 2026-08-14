@@ -23,27 +23,10 @@ let shareBusy = false;      // 单个分享/取消进行中：禁用其余分享
 let batchBusy = false;      // 批量操作进行中：禁用批量栏按钮
 let myWorks = [];           // 我的公开作品（索引条目，含 folder/path/name）
 
-/* 打开函数绘制器的短期一次性票据：防止直接构造 ?u=&p= 链接越权读取他人私有项目。 */
-const OPEN_TICKET_KEY = 'fnplt_open_ticket_v1';
-const OPEN_TICKET_TTL = 15 * 60 * 1000;
-
-function issueOpenTicket(uid, folder) {
-  try {
-    const now = Date.now();
-    const key = String(uid || '') + '/' + String(folder || '');
-    let tickets = {};
-    try { tickets = JSON.parse(localStorage.getItem(OPEN_TICKET_KEY) || '{}') || {}; } catch (e) {}
-    for (const k of Object.keys(tickets)) {
-      if (!tickets[k] || !tickets[k].exp || tickets[k].exp <= now) delete tickets[k];
-    }
-    tickets[key] = {
-      u: String(uid || ''),
-      p: String(folder || ''),
-      nonce: Math.random().toString(36).slice(2) + Date.now().toString(36),
-      exp: now + OPEN_TICKET_TTL,
-    };
-    localStorage.setItem(OPEN_TICKET_KEY, JSON.stringify(tickets));
-  } catch (e) {}
+/* 组装函数绘制器打开链接：URL 只携带用户 ID（u）与项目唯一 ID（p，即 project.json 的 _id），
+ * 不携带项目名称，避免重名 / 改名导致定位错误；打开后绘制器按 ID 定位项目文件夹。 */
+function plotterOpenUrl(userId, projectId) {
+  return 'plotter/index.html?u=' + encodeURIComponent(String(userId || '')) + '&p=' + encodeURIComponent(String(projectId || ''));
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -196,14 +179,15 @@ function cardInner(p) {
   `;
 }
 
-/* 打开项目：对接函数绘制器（plotter/），新标签页加载该项目数据 */
+/* 打开项目：对接函数绘制器（plotter/），新标签页加载该项目数据。
+ * URL 用项目唯一 ID（p）标识，不用名称/文件夹名，避免重名与改名导致定位误差。 */
 function onOpenProject(folder) {
   const p = projList.find((x) => x.folder === folder);
   if (!p) return;
   const user = getCurrentUser();
-  issueOpenTicket(user.id, folder);
-  const url = 'plotter/index.html?u=' + encodeURIComponent(user.id) + '&p=' + encodeURIComponent(folder);
-  window.open(url, '_blank', 'noopener');
+  if (!user || !user.id) { toast('请先登录'); return; }
+  const projectId = p.id || folder;
+  window.open(plotterOpenUrl(user.id, projectId), '_blank', 'noopener');
   toast('已打开项目：' + p.name);
 }
 
@@ -525,8 +509,10 @@ function onMyWorksClick(e) {
   }
 }
 
-/* 打开公开作品：从索引 path（users/<uid>/projects/<folder>）解析项目定位并跳转函数绘制器 */
-function onOpenWork(folder) {
+/* 打开公开作品：从索引 path（users/<uid>/projects/<folder>）解析项目定位，
+ * 先读取该作品 info.json 拿到项目唯一 ID，再以 ?u=<uid>&p=<项目ID> 跳转函数绘制器。
+ * 分享索引未存 ID，故需额外一次读取；读取失败时回退用文件夹名定位。 */
+async function onOpenWork(folder) {
   try {
     const w = myWorks.find((x) => x.folder === folder);
     const p = String((w && w.path) ? w.path : '').split('/').filter(Boolean);
@@ -537,9 +523,17 @@ function onOpenWork(folder) {
       toast(ERR_MSG);
       return;
     }
-    issueOpenTicket(uid, proj);
-    const url = 'plotter/index.html?u=' + encodeURIComponent(uid) + '&p=' + encodeURIComponent(proj);
-    window.open(url, '_blank', 'noopener');
+    let projectId = proj;
+    try {
+      const cfg = requireConfig();
+      const raw = await ghRead(cfg, buildPath(cfg.usersRoot, uid, 'projects', proj, 'info.json'));
+      if (raw) {
+        const meta = JSON.parse(raw);
+        if (meta && meta.id) projectId = meta.id;
+      }
+    } catch (e) {}
+    window.open(plotterOpenUrl(uid, projectId), '_blank', 'noopener');
+    toast('已打开作品：' + ((w && w.name) || proj));
   } catch (err) {
     toast(ERR_MSG);
   }
