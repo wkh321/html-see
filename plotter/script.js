@@ -11325,30 +11325,36 @@ function initNewFeatures(){
 }
 initNewFeatures();
 // ==================== 外部项目模式（门户对接） ====================
-// 门户「我的页面 / 公开作品」点击打开时跳转本页：plotter/index.html?t=<令牌>
+// 门户「我的页面 / 公开作品」点击打开时跳转本页：plotter/index.html?t=<令牌>&id=<项目文件夹>
 // 本页据此向点鸭校验一次性令牌后从 GitHub 读取项目数据并加载（复用门户的 GitHub 配置）；
-// 令牌不携带用户数据，链接仅包含 ?t=<token>。
+// 令牌不携带用户数据，链接仅包含 ?t=<token>&id=<folder>。
 // 外部模式下「保存到云端」写回原项目文件夹 projects/<folder>/（project.json + question.txt + analysis.txt + info.json）。
 (function () {
   var EXT_CFG_KEY = 'fnplt_gh_config_v2';
   var extProject = null; // { cfg, userId, folder }
-  var OPEN_TICKET_SESS = 'fnplt_open_ticket_sess_v1'; // 打开会话缓存：验证成功后写 sessionStorage，刷新保留、关闭页面/新开标签页即消失
+  // 打开流程看门狗：令牌校验 + 项目加载必须在 30 秒内完成，否则强制锁屏。
+  // 防止点鸭校验 / GitHub 读取挂起导致页面停留在加载遮罩上。
+  var extWatchdogTimer = null;
 
+  function extArmWatchdog() {
+    extDisarmWatchdog();
+    extWatchdogTimer = setTimeout(function () {
+      extWatchdogTimer = null;
+      if (document.getElementById('extInvalidOv')) return;
+      extShowInvalidTicket();
+      extToast('项目打开超时，请从「我的」页面重新打开');
+    }, 30000);
+  }
+  function extDisarmWatchdog() {
+    if (extWatchdogTimer) { clearTimeout(extWatchdogTimer); extWatchdogTimer = null; }
+  }
+  function extGetClientIP() {
+    // 当前请求方 IP：复用绘制器已有的 getClientIP（ipify/ipinfo 兜底）。失败返回空串。
+    if (window.UserAuth && typeof UserAuth.getClientIP === 'function') return UserAuth.getClientIP();
+    return Promise.resolve('');
+  }
   function extReadCfg(key) {
     try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
-  }
-  function extSessGet() {
-    try { return JSON.parse(sessionStorage.getItem(OPEN_TICKET_SESS) || 'null') || null; } catch (e) { return null; }
-  }
-  function extSessSet(u, p, exp, token) {
-    try {
-      sessionStorage.setItem(OPEN_TICKET_SESS, JSON.stringify({
-        u: String(u || ''), p: String(p || ''), exp: Number(exp) || 0, token: token || null
-      }));
-    } catch (e) {}
-  }
-  function extSessClear() {
-    try { sessionStorage.removeItem(OPEN_TICKET_SESS); } catch (e) {}
   }
 
   function extGetConfig() {
@@ -11403,50 +11409,48 @@ initNewFeatures();
     try { resetProjectData(); } catch (e) {}
     extToast('已恢复为空白新项目');
   }
-  async function extOpenProject() {
+  function extOpenProject() {
     var sp = extParams();
     if (!sp) return;
     var token = sp.get('t') || sp.get('token');
-    var userId = sp.get('u');
-    var folder = sp.get('p');
-    // 无任何打开参数：本地工具模式，直接进入空白新项目（不校验）。
-    if (!token && !userId && !folder) { extResetToBlank(); return; }
-    // 仅令牌模式：链接只允许携带令牌参数，禁止把用户数据(u/p)暴露在链接里。
-    // 缺令牌或携带 u/p（旧链接）时一律锁屏，引导回到我的页面重新打开。
-    if (!token || userId || folder) { extShowInvalidTicket(); return; }
+    var projectId = sp.get('id') || sp.get('p');
+    var isNew = sp.get('new') === '1';
+    // 无任何打开参数或 new=1：本地工具模式，直接进入空白新项目（不校验）。
+    if (isNew || (!token && !projectId)) { extResetToBlank(); return; }
+    // 令牌与项目 id 必须成对出现；只带 t 或只带 id（残缺链接）一律锁屏。
+    if (!token || !projectId) { extShowInvalidTicket(); return; }
 
-    var sess = extSessGet();
-    // 刷新页面时命中 sessionStorage 缓存（令牌已消费、本标签页会话仍在），直接放行
-    if (sess && sess.token === token && sess.u && sess.p && sess.exp >= Date.now()) {
-      extOpen(sess.u, sess.p);
-      return;
-    }
-    // 首次打开：向点鸭校验令牌并一次性消费；成功后缓存到 sessionStorage（刷新保留、关闭页面失效）
+    // 每次打开 / 刷新都必须向点鸭校验一次性令牌；令牌已消费 → 拒绝。
+    // 不做 sessionStorage 缓存放行，防止复制链接或刷新后绕过校验越权读取他人项目。
     if (window.PlotterTicket && PlotterTicket.verify) {
       extShowLoading();
-      PlotterTicket.verify(token).then(function (res) {
+      extArmWatchdog();
+      PlotterTicket.verify(token, projectId, extGetClientIP).then(function (res) {
         if (res && res.timeout) {
           extShowInvalidTicket();
           extToast('令牌校验超时，请检查点鸭数据表配置或稍后重试');
           return;
         }
         if (res && res.u && res.p) {
-          extSessSet(res.u, res.p, res.exp, token);
           extOpen(res.u, res.p);
         } else {
           extShowInvalidTicket();
           extToast('打开链接无效或已过期，请从「我的」页面重新打开');
         }
+      }).catch(function () {
+        // verify 内部异常（理论上已被 dbticket 捕获）：兜底锁屏，避免停留在加载遮罩
+        extShowInvalidTicket();
+        extToast('令牌校验失败，请从「我的」页面重新打开');
       });
       return;
     }
     extShowInvalidTicket();
   }
-  // 令牌失效/过期/含用户数据参数：全屏锁屏禁止操作，引导回到「我的」页面重新打开。
+  // 令牌失效/过期/含用户数据参数/打开超时：全屏锁屏禁止操作，引导回到「我的」页面重新打开。
   // 点击「回到我的页面」在当前页跳转（避免堆积太多标签页）。
   function extShowInvalidTicket() {
     extHideLoading();
-    extSessClear();
+    extDisarmWatchdog();
     try { resetProjectData(); } catch (e) {}
     if (document.getElementById('extInvalidOv')) return;
     var ov = document.createElement('div');
@@ -11464,14 +11468,14 @@ initNewFeatures();
   }
   async function extOpen(userId, folder) {
     var cfg = extGetConfig();
-    if (!cfg) { extToast('未找到仓库配置，请先在门户管理者设置中配置 GitHub'); return; }
+    if (!cfg) { extHideLoading(); extDisarmWatchdog(); extToast('未找到仓库配置，请先在门户管理者设置中配置 GitHub'); return; }
     var base = extJoin(cfg.usersRoot, userId, 'projects', folder);
     extShowLoading();
     try {
       var raw = await UserAuth.ghRead(cfg, extJoin(base, 'project.json'));
-      if (!raw) { extHideLoading(); extResetToBlank(); extToast('项目数据读取失败：' + folder); return; }
+      if (!raw) { extHideLoading(); extDisarmWatchdog(); extResetToBlank(); extToast('项目数据读取失败：' + folder); return; }
       var data;
-      try { data = JSON.parse(raw); } catch (e) { extHideLoading(); extResetToBlank(); extToast('项目文件损坏，无法解析'); return; }
+      try { data = JSON.parse(raw); } catch (e) { extHideLoading(); extDisarmWatchdog(); extResetToBlank(); extToast('项目文件损坏，无法解析'); return; }
       if (!data || typeof data !== 'object') throw new Error('项目数据格式无效');
       extProject = { cfg: cfg, userId: userId, folder: folder };
       cloudProjectId = folder;
@@ -11479,7 +11483,7 @@ initNewFeatures();
       try {
         applyProjectData(data);
       } catch (e) {
-        extHideLoading(); extResetToBlank(); extToast('项目数据加载失败：' + (e.message || '') + '，已恢复为空白新项目'); return;
+        extHideLoading(); extDisarmWatchdog(); extResetToBlank(); extToast('项目数据加载失败：' + (e.message || '') + '，已恢复为空白新项目'); return;
       }
       markSaved();
       try {
@@ -11503,10 +11507,12 @@ initNewFeatures();
         }
       } catch (e5) {}
       extHideLoading();
+      extDisarmWatchdog();
       if (data.name) { document.title = String(data.name) + ' - 函数图像绘制器'; }
       extToast('已打开项目：' + (data.name || folder));
     } catch (e) {
       extHideLoading();
+      extDisarmWatchdog();
       extResetToBlank();
       extToast('项目打开失败：' + (e.message || '') + '，已恢复为空白新项目');
     }

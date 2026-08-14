@@ -41,9 +41,9 @@ export function initTopNav() {
     handleUserAction(item.dataset.action);
   });
 
-  /* 返回 / 品牌 / 绘图主页标签：跳转到函数绘制器（plotter/index.html） */
-  const user = getCurrentUser();
-  const plotterUrl = 'plotter/index.html' + (user && user.id ? '?u=' + encodeURIComponent(user.id) : '');
+  /* 返回 / 品牌 / 绘图主页标签：跳转到函数绘制器空白新项目（?new=1 不经令牌校验）。
+   * 打开用户已保存项目一律从「我的页面」走一次性令牌，顶部按钮不携带用户数据。 */
+  const plotterUrl = 'plotter/index.html?new=1';
   bindJump('backBtn', plotterUrl);
   bindJump('brandBtn', plotterUrl);
   bindJump('quickBackBtn', plotterUrl);

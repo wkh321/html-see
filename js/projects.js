@@ -26,7 +26,22 @@ let myWorks = [];           // 我的公开作品（索引条目，含 folder/pa
 
 const OPEN_TICKET_TTL = 15 * 60 * 1000; // 一次性打开令牌有效期
 
-/* 打开函数绘制器的跳转组装：点鸭 logs 表启用时签发一次性令牌，URL 只带 ?t=<token>（不嵌套 u/p）。
+/* 异步获取当前访问者 IP（绘制器侧校验令牌时比对）。失败 / 超时（8 秒）回退空串，不阻塞签发。
+ * getClientIP 为 app.js 合并后的全局顶层函数；未加载时按无 IP 处理。 */
+function getClientIpSafely() {
+  try {
+    if (typeof getClientIP === 'function') {
+      return Promise.race([
+        Promise.resolve().then(() => getClientIP()),
+        new Promise((r) => setTimeout(() => r(''), 8000)),
+      ]).catch(() => '');
+    }
+  } catch (e) {}
+  return Promise.resolve('');
+}
+
+/* 打开函数绘制器的跳转组装：点鸭 logs 表启用时签发一次性令牌，URL 带 ?t=<token>&id=<项目文件夹>
+ * （不嵌套 u/p）。detail 记录签发时 IP，绘制器校验时比对，防止令牌被转移到其他设备 / 网络使用。
  * 未启用点鸭 logs 时无法签发令牌，拒绝生成链接并提示（禁止把用户数据 u/p 暴露到链接里）。
  * 返回 Promise<{url}>，失败时 reject(Error)。 */
 function issueOpenToken(uid, folder) {
@@ -35,22 +50,24 @@ function issueOpenToken(uid, folder) {
   }
   const token = Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
   const exp = Date.now() + OPEN_TICKET_TTL;
-  // 签发前清理该用户全部旧 open_ticket（含已消费），保证同时只存在一个有效令牌、不残留过期记录。
+  // 并行获取当前 IP + 清理旧令牌（该用户全部 open_ticket，含已消费），保证同时只存在一个有效令牌。
+  const ipPromise = getClientIpSafely();
   return dbRemove("type='open_ticket' AND user_id='" + String(uid || '').replace(/'/g, "''") + "'", DB_TABLES.LOGS)
     .catch(() => {})
-    .then(() =>
+    .then(() => ipPromise)
+    .then((ip) =>
       dbInsert(
         {
           type: 'open_ticket',
           user_id: String(uid || ''),
           name: token,
           status: 'active',
-          detail: JSON.stringify({ folder: String(folder || ''), exp }),
+          detail: JSON.stringify({ folder: String(folder || ''), exp, ip: String(ip || '') }),
         },
         DB_TABLES.LOGS
       )
     )
-    .then(() => ({ url: 'plotter/index.html?t=' + encodeURIComponent(token) }));
+    .then(() => ({ url: 'plotter/index.html?t=' + encodeURIComponent(token) + '&id=' + encodeURIComponent(String(folder || '')) }));
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
