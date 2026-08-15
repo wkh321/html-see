@@ -5105,6 +5105,13 @@ function initTopNav() {
   document.querySelectorAll('.nav-tab[data-nav="plotter"]').forEach((btn) =>
     btn.addEventListener('click', () => { location.href = plotterUrl; })
   );
+  /* 「我的」标签：当前即在个人页，点击给出反馈（避免用户以为无响应） */
+  document.querySelectorAll('.nav-tab[data-nav="mine"]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      if (typeof switchPage === 'function') switchPage('profile');
+      toast('当前已在「我的」页面');
+    })
+  );
   document.getElementById('manualBtn').addEventListener('click', () =>
     toast('使用手册：左侧导航切换页面，右侧 AI 球形助手可拖动、双击展开')
   );

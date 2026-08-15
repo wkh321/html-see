@@ -13,6 +13,7 @@
 
   <!-- 本地样式（拆分后的外部文件） -->
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="../css/theme.css">
 </head>
 <body>
 
@@ -71,118 +72,147 @@
       </div>
     </div>
     <div class="line-panel-overlay" id="linePanelOverlay"></div>
-    <div class="panel-scroll">
-      <div class="batch-toolbar" id="batchToolbar">
-        <span style="font-size:12px;color:#888;">已选 <span id="batchCount">0</span> 项</span>
-        <button class="batch-btn" onclick="selectAllItems()">全选</button>
-        <button class="batch-btn" onclick="deselectAllItems()">取消全选</button>
-        <button class="batch-btn" onclick="confirmBatchHide()">批量隐藏</button>
-        <button class="batch-btn" onclick="confirmBatchShow()">批量显示</button>
-        <button class="batch-delete-btn" id="batchDeleteBtn" onclick="confirmBatchDelete()" disabled>批量删除</button>
+    <div class="left-panel-body">
+      <!-- 左侧菜单栏：代数区 / 工具 / 表格 / 数据 -->
+      <div class="panel-tabs" id="panelTabs">
+        <button class="panel-tab active" data-ptab="algebra" title="代数区"><span class="ptab-icon">&#8451;</span><span class="ptab-label">代数区</span></button>
+        <button class="panel-tab" data-ptab="tools" title="工具"><span class="ptab-icon">&#9881;</span><span class="ptab-label">工具</span></button>
+        <button class="panel-tab" data-ptab="table" title="表格"><span class="ptab-icon">&#9636;</span><span class="ptab-label">表格</span></button>
+        <button class="panel-tab" data-ptab="data" title="数据"><span class="ptab-icon">&#9683;</span><span class="ptab-label">数据</span></button>
       </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0 4px 0;font-size:12px;color:#888;">
-        <span>项目列表 <span id="itemCount">(0)</span></span>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <button class="list-tool-btn" onclick="toggleBatchMode()" title="进入批量选择模式">多选</button>
-          <button class="list-tool-btn" onclick="openAddFolderDialog()" title="添加文件夹">添加文件夹</button>
-          <button class="vk-toggle" id="vkToggle" onclick="toggleKeyboard(event)" title="显示/隐藏虚拟键盘">键盘</button>
+      <div class="panel-tab-body">
+        <!-- 代数区：现有项目列表控制面板 -->
+        <div class="panel-tab-pane active" data-pane="algebra">
+          <div class="panel-scroll">
+            <div class="batch-toolbar" id="batchToolbar">
+              <span style="font-size:12px;color:#888;">已选 <span id="batchCount">0</span> 项</span>
+              <button class="batch-btn" onclick="selectAllItems()">全选</button>
+              <button class="batch-btn" onclick="deselectAllItems()">取消全选</button>
+              <button class="batch-btn" onclick="confirmBatchHide()">批量隐藏</button>
+              <button class="batch-btn" onclick="confirmBatchShow()">批量显示</button>
+              <button class="batch-delete-btn" id="batchDeleteBtn" onclick="confirmBatchDelete()" disabled>批量删除</button>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0 4px 0;font-size:12px;color:#888;flex-wrap:wrap;gap:4px;">
+              <span>项目列表 <span id="itemCount">(0)</span></span>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <button class="list-tool-btn" id="enhUndoBtn" title="撤销 (Ctrl+Z)">&#8630; 撤销</button>
+                <button class="list-tool-btn" id="enhRedoBtn" title="重做 (Ctrl+Y)">&#8631; 重做</button>
+                <button class="list-tool-btn" onclick="toggleBatchMode()" title="进入批量选择模式">多选</button>
+                <button class="list-tool-btn" onclick="openAddFolderDialog()" title="添加文件夹">添加文件夹</button>
+                <button class="vk-toggle" id="vkToggle" onclick="toggleKeyboard(event)" title="显示/隐藏虚拟键盘">键盘</button>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;padding:0 0 4px 0;flex-wrap:wrap;">
+              <span style="font-size:12px;color:#888;flex-shrink:0;">类型：</span>
+              <label style="font-size:12px;"><input type="checkbox" data-filter="function" checked onchange="updateItemFilter()"> 函数</label>
+              <label style="font-size:12px;"><input type="checkbox" data-filter="point" checked onchange="updateItemFilter()"> 坐标点</label>
+              <label style="font-size:12px;"><input type="checkbox" data-filter="param" checked onchange="updateItemFilter()"> 参数</label>
+              <label style="font-size:12px;"><input type="checkbox" data-filter="segment" checked onchange="updateItemFilter()"> 线段</label>
+              <label style="font-size:12px;"><input type="checkbox" data-filter="ray" checked onchange="updateItemFilter()"> 射线</label>
+              <label style="font-size:12px;"><input type="checkbox" data-filter="line" checked onchange="updateItemFilter()"> 直线</label>
+              <label style="font-size:12px;"><input type="checkbox" data-filter="circle" checked onchange="updateItemFilter()"> 圆</label>
+            </div>
+            <div id="itemListContainer"></div>
+          </div>
+          <div class="virtual-keyboard" id="virtualKeyboard">
+            <div class="vk-tabs">
+              <button class="vk-tab active" data-vktab="num">数字/符号</button>
+              <button class="vk-tab" data-vktab="abc">字母参数</button>
+              <button class="vk-tab" data-vktab="greek">希腊字母</button>
+            </div>
+            <div class="vk-panel active" data-vkpanel="num">
+              <div class="vk-row">
+                <button class="vk-btn" data-vk="7">7</button><button class="vk-btn" data-vk="8">8</button>
+                <button class="vk-btn" data-vk="9">9</button><button class="vk-btn sym" data-vk="+">+</button>
+                <button class="vk-btn sym" data-vk="-">-</button><button class="vk-btn sym" data-vk="*">*</button>
+                <button class="vk-btn sym" data-vk="/">/</button><button class="vk-btn danger" data-vk="del">&#9003;</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn" data-vk="4">4</button><button class="vk-btn" data-vk="5">5</button>
+                <button class="vk-btn" data-vk="6">6</button><button class="vk-btn sym" data-vk="^">^</button>
+                <button class="vk-btn" data-vk="(">(</button><button class="vk-btn" data-vk=")">)</button>
+                <button class="vk-btn" data-vk="|">|</button><button class="vk-btn" data-vk=".">.</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn" data-vk="1">1</button><button class="vk-btn" data-vk="2">2</button>
+                <button class="vk-btn" data-vk="3">3</button><button class="vk-btn" data-vk="0">0</button>
+                <button class="vk-btn sym" data-vk="=">=</button><button class="vk-btn wide" data-vk=",">,</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn" data-vk="x">x</button><button class="vk-btn" data-vk="y">y</button>
+                <button class="vk-btn sym" data-vk="pi">&#960;</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn fn" data-vk="abs">abs</button><button class="vk-btn fn" data-vk="exp">exp</button>
+                <button class="vk-btn fn" data-vk="asin">asin</button><button class="vk-btn fn" data-vk="acos">acos</button>
+                <button class="vk-btn fn" data-vk="atan">atan</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn fn" data-vk="sin">sin</button><button class="vk-btn fn" data-vk="cos">cos</button>
+                <button class="vk-btn fn" data-vk="tan">tan</button><button class="vk-btn fn" data-vk="log">log</button>
+                <button class="vk-btn fn" data-vk="ln">ln</button><button class="vk-btn fn" data-vk="sqrt">sqrt</button>
+              </div>
+            </div>
+            <div class="vk-panel" data-vkpanel="abc">
+              <div class="vk-row">
+                <button class="vk-btn" data-vk="a">a</button><button class="vk-btn" data-vk="b">b</button>
+                <button class="vk-btn" data-vk="c">c</button><button class="vk-btn" data-vk="d">d</button>
+                <button class="vk-btn" data-vk="e">e</button><button class="vk-btn" data-vk="f">f</button>
+                <button class="vk-btn" data-vk="g">g</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn" data-vk="h">h</button><button class="vk-btn" data-vk="i">i</button>
+                <button class="vk-btn" data-vk="j">j</button><button class="vk-btn" data-vk="k">k</button>
+                <button class="vk-btn" data-vk="l">l</button><button class="vk-btn" data-vk="m">m</button>
+                <button class="vk-btn" data-vk="n">n</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn" data-vk="o">o</button><button class="vk-btn" data-vk="p">p</button>
+                <button class="vk-btn" data-vk="q">q</button><button class="vk-btn" data-vk="r">r</button>
+                <button class="vk-btn" data-vk="s">s</button><button class="vk-btn" data-vk="t">t</button>
+                <button class="vk-btn" data-vk="u">u</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn" data-vk="v">v</button><button class="vk-btn" data-vk="w">w</button>
+                <button class="vk-btn" data-vk="z">z</button>
+              </div>
+            </div>
+            <div class="vk-panel" data-vkpanel="greek">
+              <div class="vk-row">
+                <button class="vk-btn greek" data-vk="alpha">&#945;</button><button class="vk-btn greek" data-vk="beta">&#946;</button>
+                <button class="vk-btn greek" data-vk="gamma">&#947;</button><button class="vk-btn greek" data-vk="delta">&#948;</button>
+                <button class="vk-btn greek" data-vk="epsilon">&#949;</button><button class="vk-btn greek" data-vk="zeta">&#950;</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn greek" data-vk="eta">&#951;</button><button class="vk-btn greek" data-vk="theta">&#952;</button>
+                <button class="vk-btn greek" data-vk="iota">&#953;</button><button class="vk-btn greek" data-vk="kappa">&#954;</button>
+                <button class="vk-btn greek" data-vk="lambda">&#955;</button><button class="vk-btn greek" data-vk="mu">&#956;</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn greek" data-vk="nu">&#957;</button><button class="vk-btn greek" data-vk="xi">&#958;</button>
+                <button class="vk-btn greek" data-vk="rho">&#961;</button><button class="vk-btn greek" data-vk="sigma">&#963;</button>
+                <button class="vk-btn greek" data-vk="tau">&#964;</button>
+              </div>
+              <div class="vk-row">
+                <button class="vk-btn greek" data-vk="upsilon">&#965;</button><button class="vk-btn greek" data-vk="phi">&#966;</button>
+                <button class="vk-btn greek" data-vk="chi">&#967;</button><button class="vk-btn greek" data-vk="psi">&#968;</button>
+                <button class="vk-btn greek" data-vk="omega">&#969;</button>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;padding:0 0 4px 0;flex-wrap:wrap;">
-        <span style="font-size:12px;color:#888;flex-shrink:0;">类型：</span>
-        <label style="font-size:12px;"><input type="checkbox" data-filter="function" checked onchange="updateItemFilter()"> 函数</label>
-        <label style="font-size:12px;"><input type="checkbox" data-filter="point" checked onchange="updateItemFilter()"> 坐标点</label>
-        <label style="font-size:12px;"><input type="checkbox" data-filter="param" checked onchange="updateItemFilter()"> 参数</label>
-        <label style="font-size:12px;"><input type="checkbox" data-filter="segment" checked onchange="updateItemFilter()"> 线段</label>
-        <label style="font-size:12px;"><input type="checkbox" data-filter="ray" checked onchange="updateItemFilter()"> 射线</label>
-        <label style="font-size:12px;"><input type="checkbox" data-filter="line" checked onchange="updateItemFilter()"> 直线</label>
-        <label style="font-size:12px;"><input type="checkbox" data-filter="circle" checked onchange="updateItemFilter()"> 圆</label>
-      </div>
-      <div id="itemListContainer"></div>
-    </div>
-    <div class="virtual-keyboard" id="virtualKeyboard">
-      <div class="vk-tabs">
-        <button class="vk-tab active" data-vktab="num">数字/符号</button>
-        <button class="vk-tab" data-vktab="abc">字母参数</button>
-        <button class="vk-tab" data-vktab="greek">希腊字母</button>
-      </div>
-      <div class="vk-panel active" data-vkpanel="num">
-        <div class="vk-row">
-          <button class="vk-btn" data-vk="7">7</button><button class="vk-btn" data-vk="8">8</button>
-          <button class="vk-btn" data-vk="9">9</button><button class="vk-btn sym" data-vk="+">+</button>
-          <button class="vk-btn sym" data-vk="-">-</button><button class="vk-btn sym" data-vk="*">*</button>
-          <button class="vk-btn sym" data-vk="/">/</button><button class="vk-btn danger" data-vk="del">⌫</button>
+        <!-- 工具：测量与分析工具 -->
+        <div class="panel-tab-pane" data-pane="tools">
+          <div class="panel-scroll tools-pane" id="enhToolsPane"></div>
         </div>
-        <div class="vk-row">
-          <button class="vk-btn" data-vk="4">4</button><button class="vk-btn" data-vk="5">5</button>
-          <button class="vk-btn" data-vk="6">6</button><button class="vk-btn sym" data-vk="^">^</button>
-          <button class="vk-btn" data-vk="(">(</button><button class="vk-btn" data-vk=")">)</button>
-          <button class="vk-btn" data-vk="|">|</button><button class="vk-btn" data-vk=".">.</button>
+        <!-- 表格：函数数值表 -->
+        <div class="panel-tab-pane" data-pane="table">
+          <div class="tools-head" style="padding:12px 12px 0;">函数数值表</div>
+          <div id="enhValueTablePanel" style="display:flex;flex-direction:column;flex:1;min-height:0;border-top:1px solid #e2e8f0;background:var(--bg-secondary,#fff);"></div>
         </div>
-        <div class="vk-row">
-          <button class="vk-btn" data-vk="1">1</button><button class="vk-btn" data-vk="2">2</button>
-          <button class="vk-btn" data-vk="3">3</button><button class="vk-btn" data-vk="0">0</button>
-          <button class="vk-btn sym" data-vk="=">=</button><button class="vk-btn wide" data-vk=",">,</button>
-        </div>
-        <div class="vk-row">
-          <button class="vk-btn" data-vk="x">x</button><button class="vk-btn" data-vk="y">y</button>
-          <button class="vk-btn sym" data-vk="pi">π</button>
-        </div>
-        <div class="vk-row">
-          <button class="vk-btn fn" data-vk="abs">abs</button><button class="vk-btn fn" data-vk="exp">exp</button>
-          <button class="vk-btn fn" data-vk="asin">asin</button><button class="vk-btn fn" data-vk="acos">acos</button>
-          <button class="vk-btn fn" data-vk="atan">atan</button>
-        </div>
-        <div class="vk-row">
-          <button class="vk-btn fn" data-vk="sin">sin</button><button class="vk-btn fn" data-vk="cos">cos</button>
-          <button class="vk-btn fn" data-vk="tan">tan</button><button class="vk-btn fn" data-vk="log">log</button>
-          <button class="vk-btn fn" data-vk="ln">ln</button><button class="vk-btn fn" data-vk="sqrt">sqrt</button>
-        </div>
-      </div>
-      <div class="vk-panel" data-vkpanel="abc">
-        <div class="vk-row">
-          <button class="vk-btn" data-vk="a">a</button><button class="vk-btn" data-vk="b">b</button>
-          <button class="vk-btn" data-vk="c">c</button><button class="vk-btn" data-vk="d">d</button>
-          <button class="vk-btn" data-vk="e">e</button><button class="vk-btn" data-vk="f">f</button>
-          <button class="vk-btn" data-vk="g">g</button>
-        </div>
-        <div class="vk-row">
-          <button class="vk-btn" data-vk="h">h</button><button class="vk-btn" data-vk="i">i</button>
-          <button class="vk-btn" data-vk="j">j</button><button class="vk-btn" data-vk="k">k</button>
-          <button class="vk-btn" data-vk="l">l</button><button class="vk-btn" data-vk="m">m</button>
-          <button class="vk-btn" data-vk="n">n</button>
-        </div>
-        <div class="vk-row">
-          <button class="vk-btn" data-vk="o">o</button><button class="vk-btn" data-vk="p">p</button>
-          <button class="vk-btn" data-vk="q">q</button><button class="vk-btn" data-vk="r">r</button>
-          <button class="vk-btn" data-vk="s">s</button><button class="vk-btn" data-vk="t">t</button>
-          <button class="vk-btn" data-vk="u">u</button>
-        </div>
-        <div class="vk-row">
-          <button class="vk-btn" data-vk="v">v</button><button class="vk-btn" data-vk="w">w</button>
-          <button class="vk-btn" data-vk="z">z</button>
-        </div>
-      </div>
-      <div class="vk-panel" data-vkpanel="greek">
-        <div class="vk-row">
-          <button class="vk-btn greek" data-vk="alpha">α</button><button class="vk-btn greek" data-vk="beta">β</button>
-          <button class="vk-btn greek" data-vk="gamma">γ</button><button class="vk-btn greek" data-vk="delta">δ</button>
-          <button class="vk-btn greek" data-vk="epsilon">ε</button><button class="vk-btn greek" data-vk="zeta">ζ</button>
-        </div>
-        <div class="vk-row">
-          <button class="vk-btn greek" data-vk="eta">η</button><button class="vk-btn greek" data-vk="theta">θ</button>
-          <button class="vk-btn greek" data-vk="iota">ι</button><button class="vk-btn greek" data-vk="kappa">κ</button>
-          <button class="vk-btn greek" data-vk="lambda">λ</button><button class="vk-btn greek" data-vk="mu">μ</button>
-        </div>
-        <div class="vk-row">
-          <button class="vk-btn greek" data-vk="nu">ν</button><button class="vk-btn greek" data-vk="xi">ξ</button>
-          <button class="vk-btn greek" data-vk="rho">ρ</button><button class="vk-btn greek" data-vk="sigma">σ</button>
-          <button class="vk-btn greek" data-vk="tau">τ</button>
-        </div>
-        <div class="vk-row">
-          <button class="vk-btn greek" data-vk="upsilon">υ</button><button class="vk-btn greek" data-vk="phi">φ</button>
-          <button class="vk-btn greek" data-vk="chi">χ</button><button class="vk-btn greek" data-vk="psi">ψ</button>
-          <button class="vk-btn greek" data-vk="omega">ω</button>
+        <!-- 数据：测量记录与坐标点 -->
+        <div class="panel-tab-pane" data-pane="data">
+          <div class="panel-scroll" id="enhDataPanel"></div>
         </div>
       </div>
     </div>
@@ -879,8 +909,31 @@
   <!-- ===== 加载拆分后的 JavaScript ===== -->
   <script src="../js/dbs-all.js"></script>
   <script src="../js/dbs-users.js"></script>
+  <script src="../js/theme-switcher.js"></script>
   <script src="auth.js"></script>
   <script src="script.js"></script>
+  <script src="enhancements.js"></script>
   <script src="mdeditor.js"></script>
+  <script>
+    // 左侧菜单栏切换：代数区 / 工具 / 表格 / 数据
+    (function () {
+      const tabs = document.querySelectorAll('.panel-tab[data-ptab]');
+      const panes = document.querySelectorAll('.panel-tab-pane[data-pane]');
+      const switchTab = function (name) {
+        tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.ptab === name); });
+        panes.forEach(function (p) { p.classList.toggle('active', p.dataset.pane === name); });
+      };
+      tabs.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          switchTab(btn.dataset.ptab);
+          if (window.Enhancements) {
+            if (btn.dataset.ptab === 'table') window.Enhancements.ValueTable.render();
+            if (btn.dataset.ptab === 'data') window.Enhancements.DataPanel.render();
+          }
+        });
+      });
+      window.panelSwitchTab = switchTab;
+    })();
+  </script>
 </body>
 </html>

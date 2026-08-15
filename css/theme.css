@@ -1,0 +1,210 @@
+/* ============================================================
+ * html-see 共享主题系统
+ * 两页面统一引入，通过 data-theme 属性切换主题
+ * ============================================================ */
+
+:root {
+  /* 默认浅色主题变量 */
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --border-color: #e2e8f0;
+  --accent: #38bdf8;
+  --accent-hover: #0ea5e9;
+  --accent-light: #e0f2fe;
+  --canvas-bg: #ffffff;
+  --panel-bg: #ffffff;
+  --shadow: rgba(15, 23, 42, 0.08);
+  --shadow-lg: rgba(15, 23, 42, 0.12);
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #3b82f6;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --transition: 0.2s ease;
+
+  /* 根页面（variables.css）变量体系：浅色 */
+  --accent-strong: #0ea5e9;
+  --accent-soft: rgba(56, 189, 248, 0.16);
+  --accent-border: rgba(56, 189, 248, 0.45);
+  --text-title: #1e293b;
+  --text-body: #475569;
+  --text-accent: #0284c7;
+  --admin: #a78bfa;
+  --admin-soft: rgba(167, 139, 250, 0.16);
+  --glass-bg: rgba(255, 255, 255, 0.3);
+  --glass-bg-strong: rgba(255, 255, 255, 0.42);
+  --glass-bg-hover: rgba(255, 255, 255, 0.42);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-mini-bg: rgba(255, 255, 255, 0.24);
+  --glass-mini-border: rgba(255, 255, 255, 0.42);
+}
+
+/* 深色主题 */
+[data-theme="dark"] {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --border-color: #334155;
+  --accent: #38bdf8;
+  --accent-hover: #7dd3fc;
+  --accent-light: #0c4a6e;
+  --canvas-bg: #1e293b;
+  --panel-bg: #1e293b;
+  --shadow: rgba(0, 0, 0, 0.3);
+  --shadow-lg: rgba(0, 0, 0, 0.4);
+
+  /* 根页面变量体系：深色 */
+  --accent-strong: #38bdf8;
+  --accent-soft: rgba(56, 189, 248, 0.18);
+  --accent-border: rgba(56, 189, 248, 0.5);
+  --text-title: #f1f5f9;
+  --text-body: #cbd5e1;
+  --text-accent: #7dd3fc;
+  --admin: #a78bfa;
+  --admin-soft: rgba(167, 139, 250, 0.18);
+  --glass-bg: rgba(15, 23, 42, 0.35);
+  --glass-bg-strong: rgba(30, 41, 59, 0.55);
+  --glass-bg-hover: rgba(30, 41, 59, 0.6);
+  --glass-border: rgba(148, 163, 184, 0.35);
+  --glass-mini-bg: rgba(30, 41, 59, 0.5);
+  --glass-mini-border: rgba(148, 163, 184, 0.3);
+}
+
+/* 海洋蓝主题 */
+[data-theme="ocean"] {
+  --bg-primary: #f0f9ff;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e0f2fe;
+  --text-primary: #0c4a6e;
+  --text-secondary: #0369a1;
+  --text-muted: #7dd3fc;
+  --border-color: #bae6fd;
+  --accent: #0ea5e9;
+  --accent-hover: #0284c7;
+  --accent-light: #e0f2fe;
+  --canvas-bg: #ffffff;
+  --panel-bg: #ffffff;
+  --shadow: rgba(14, 165, 233, 0.15);
+  --shadow-lg: rgba(14, 165, 233, 0.22);
+
+  /* 根页面变量体系：海洋蓝 */
+  --accent-strong: #0284c7;
+  --accent-soft: rgba(14, 165, 233, 0.16);
+  --accent-border: rgba(14, 165, 233, 0.45);
+  --text-title: #0c4a6e;
+  --text-body: #0369a1;
+  --text-accent: #0284c7;
+  --admin: #a78bfa;
+  --admin-soft: rgba(167, 139, 250, 0.16);
+  --glass-bg: rgba(240, 249, 255, 0.4);
+  --glass-bg-strong: rgba(255, 255, 255, 0.5);
+  --glass-bg-hover: rgba(255, 255, 255, 0.55);
+  --glass-border: rgba(186, 230, 253, 0.7);
+  --glass-mini-bg: rgba(255, 255, 255, 0.4);
+  --glass-mini-border: rgba(186, 230, 253, 0.6);
+}
+
+/* 森林绿主题 */
+[data-theme="forest"] {
+  --bg-primary: #f0fdf4;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #dcfce7;
+  --text-primary: #14532d;
+  --text-secondary: #166534;
+  --text-muted: #86efac;
+  --border-color: #bbf7d0;
+  --accent: #22c55e;
+  --accent-hover: #16a34a;
+  --accent-light: #dcfce7;
+  --canvas-bg: #ffffff;
+  --panel-bg: #ffffff;
+  --shadow: rgba(34, 197, 94, 0.15);
+  --shadow-lg: rgba(34, 197, 94, 0.22);
+
+  /* 根页面变量体系：森林绿 */
+  --accent-strong: #16a34a;
+  --accent-soft: rgba(34, 197, 94, 0.16);
+  --accent-border: rgba(34, 197, 94, 0.45);
+  --text-title: #14532d;
+  --text-body: #166534;
+  --text-accent: #16a34a;
+  --admin: #a78bfa;
+  --admin-soft: rgba(167, 139, 250, 0.16);
+  --glass-bg: rgba(240, 253, 244, 0.4);
+  --glass-bg-strong: rgba(255, 255, 255, 0.5);
+  --glass-bg-hover: rgba(255, 255, 255, 0.55);
+  --glass-border: rgba(187, 247, 208, 0.7);
+  --glass-mini-bg: rgba(255, 255, 255, 0.4);
+  --glass-mini-border: rgba(187, 247, 208, 0.6);
+}
+
+/* 全局过渡动画 */
+* {
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition);
+}
+
+/* 统一按钮样式 */
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all var(--transition);
+}
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+.btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all var(--transition);
+}
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 统一卡片样式 */
+.ui-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 2px 8px var(--shadow);
+  transition: all var(--transition);
+}
+.ui-card:hover {
+  box-shadow: 0 4px 16px var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+/* 统一输入框样式 */
+.ui-input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--transition);
+}
+.ui-input:focus { border-color: var(--accent); }
+
+/* 滚动条美化 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-tertiary); }
+::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
